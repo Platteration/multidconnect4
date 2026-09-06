@@ -60,6 +60,12 @@ export function RulesModal({ visible, onClose }: RulesProps) {
               The past board doesn't change; instead history branches. A fresh timeline starts from
               that moment with your extra disc in it, and your opponent has to answer there too.
             </Rule>
+            <Rule head="Or spin the whole board.">
+              Instead of dropping a disc, turn the board a quarter turn. Every disc falls to the
+              new bottom, and a board that was tall is now wide. Lines that were blocked open up,
+              and stacks turn into rows. A board that was just spun has to see a disc before it can
+              be spun again.
+            </Rule>
             <Rule head="Pulling a disc out has consequences.">
               Everything stacked above the disc you took falls down one row in the present. Sometimes
               that helps you. Sometimes it hands your opponent four in a row.

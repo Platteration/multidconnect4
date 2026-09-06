@@ -9,6 +9,8 @@ import {
   isFull,
   legalColumns,
   removeDisc,
+  rotate,
+  settle,
   winnerOf,
 } from '../board';
 
@@ -75,7 +77,7 @@ describe('board', () => {
       '.RYY...',
       'RYYY...',
     ]);
-    expect(findLines(diag)).toEqual([{ player: 0, cells: [0, index(1, 1), index(2, 2), index(3, 3)] }]);
+    expect(findLines(diag)).toEqual([{ player: 0, cells: [0, index(diag, 1, 1), index(diag, 2, 2), index(diag, 3, 3)] }]);
 
     const antiDiag = boardFromRows([
       '.......',
@@ -114,3 +116,84 @@ describe('board', () => {
     expect(findLines(board)).toEqual([]);
   });
 });
+
+describe('spinning', () => {
+  const board = boardFromRows([
+    '.......',
+    '.......',
+    '.......',
+    '.......',
+    'Y......',
+    'RRY..R.',
+  ]);
+
+  it('swaps width and height', () => {
+    const cw = rotate(board, 'cw');
+    expect(cw.cols).toBe(6);
+    expect(cw.rows).toBe(7);
+    expect(cw.spun).toBe(true);
+    expect(rotate(cw, 'ccw').cols).toBe(7);
+  });
+
+  it('turns clockwise so the old floor becomes the left wall', () => {
+    // The floor read left to right (R R Y . . R .) becomes column 0 read top
+    // to bottom, then gravity closes the gaps. The Y that sat on the
+    // left-most R lands in column 1.
+    const cw = rotate(board, 'cw');
+    expect(textRows(cw)).toEqual([
+      '......',
+      '......',
+      '......',
+      'R.....',
+      'R.....',
+      'Y.....',
+      'RY....',
+    ]);
+  });
+
+  it('turns counter-clockwise so the old floor becomes the right wall', () => {
+    const ccw = rotate(board, 'ccw');
+    expect(textRows(ccw)).toEqual([
+      '......',
+      '......',
+      '......',
+      '.....R',
+      '.....Y',
+      '.....R',
+      '....YR',
+    ]);
+  });
+
+  it('spinning twice the same way is a half turn with gravity applied each time', () => {
+    const twice = rotate(rotate(board, 'cw'), 'cw');
+    expect(twice.cols).toBe(7);
+    expect(textRows(twice)).toEqual([
+      '.......',
+      '.......',
+      '.......',
+      '.......',
+      'R......',
+      'YYRR...',
+    ]);
+  });
+
+  it('settle drops floating discs', () => {
+    const floating = { ...boardFromRows(['R......', '.......', '.......', '.......', '.......', '.......']), spun: false };
+    expect(cellAt(settle(floating), 0, 0)).toBe(0);
+    expect(cellAt(settle(floating), 5, 0)).toBeNull();
+  });
+});
+
+/** Render a board as rows of text, top row first, for readable assertions. */
+function textRows(board: { cols: number; rows: number; cells: readonly (0 | 1 | null)[] }): string[] {
+  const out: string[] = [];
+  for (let r = board.rows - 1; r >= 0; r--) {
+    let line = '';
+    for (let c = 0; c < board.cols; c++) {
+      const v = board.cells[r * board.cols + c];
+      line += v === 0 ? 'R' : v === 1 ? 'Y' : '.';
+    }
+    out.push(line);
+  }
+  return out;
+}

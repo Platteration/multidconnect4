@@ -1,9 +1,10 @@
-import { boardFromRows, cellAt, dropDisc, emptyBoard } from '../board';
+import { boardFromRows, cellAt, dropDisc, emptyBoard, findLines } from '../board';
 import {
   Action,
   GameState,
   IllegalAction,
   applyAction,
+  canRotate,
   getBoard,
   latestTurn,
   newGame,
@@ -268,5 +269,88 @@ describe('draws', () => {
     s = applyAction(s, drop(1, 1));
     expect(s.toMove).toBe(0);
     expect(pendingTimelines(s).map((t) => t.id)).toEqual([1]);
+  });
+});
+
+describe('spinning the board', () => {
+  it('is a move that turns the newest board and passes the turn', () => {
+    const g = play(newGame(), drop(0, 0), drop(0, 0), drop(0, 1));
+    expect(g.toMove).toBe(1);
+    expect(canRotate(g, 0)).toBe(true);
+    const spun = applyAction(g, { type: 'rotate', timeline: 0, spin: 'cw' });
+    expect(spun.toMove).toBe(0);
+    const board = getBoard(spun, { timeline: 0, turn: 4 })!;
+    expect(board.cols).toBe(6);
+    expect(board.rows).toBe(7);
+    expect(board.spun).toBe(true);
+    // Column 0 was R then Y; column 1 was R. Clockwise, the old floor becomes
+    // the new left wall, so both reds stack in column 0 and the Y drops into column 1.
+    expect(cellAt(board, 0, 0)).toBe(0);
+    expect(cellAt(board, 1, 0)).toBe(0);
+    expect(cellAt(board, 0, 1)).toBe(1);
+    expect(cellAt(board, 2, 0)).toBeNull();
+    expect(spun.lastCreated).toEqual([{ timeline: 0, turn: 4 }]);
+  });
+
+  it('cannot spin an empty board or a board that was just spun', () => {
+    expect(canRotate(newGame(), 0)).toBe(false);
+    expect(() => applyAction(newGame(), { type: 'rotate', timeline: 0, spin: 'cw' })).toThrow(IllegalAction);
+    const g = play(newGame(), drop(0, 3), { type: 'rotate', timeline: 0, spin: 'ccw' });
+    expect(canRotate(g, 0)).toBe(false);
+    expect(() => applyAction(g, { type: 'rotate', timeline: 0, spin: 'cw' })).toThrow(/just spun/);
+    // A drop clears the restriction.
+    const after = applyAction(g, drop(0, 0));
+    expect(canRotate(after, 0)).toBe(true);
+  });
+
+  // Floor: R . R R . R .   with   Y . Y Y . Y .   on top. Clockwise, the old
+  // floor becomes the new left-most column and the old row 1 the next one,
+  // and gravity closes the gaps: four reds and four yellows, both vertical.
+  const stacked = boardFromRows([
+    '.......',
+    '.......',
+    '.......',
+    '.......',
+    'Y.YY.Y.',
+    'R.RR.R.',
+  ]);
+
+  /** Put `board` on the newest turn belonging to `toMove` (turn 2 for Red, turn 1 for Yellow). */
+  function withBoard(board: ReturnType<typeof boardFromRows>, toMove: 0 | 1): GameState {
+    const boards = toMove === 0 ? [emptyBoard(), emptyBoard(), board] : [emptyBoard(), board];
+    return {
+      ...newGame(),
+      timelines: [{ id: 0, startTurn: 0, boards, createdBy: null, branchedFrom: null, origin: null }],
+      toMove,
+    };
+  }
+
+  it('can win by spinning discs into a line', () => {
+    expect(findLines(stacked)).toEqual([]);
+    const spun = applyAction(withBoard(stacked, 0), { type: 'rotate', timeline: 0, spin: 'cw' });
+    expect(spun.status).toBe('won');
+    expect(spun.win!.player).toBe(0);
+    expect(spun.win!.board).toEqual({ timeline: 0, turn: 3 });
+    const won = getBoard(spun, spun.win!.board)!;
+    expect(spun.win!.cells.map((i) => won.cells[i])).toEqual([0, 0, 0, 0]);
+  });
+
+  it('gives the spinner priority when both players line up', () => {
+    const yellowSpins = applyAction(withBoard(stacked, 1), { type: 'rotate', timeline: 0, spin: 'cw' });
+    expect(yellowSpins.win!.player).toBe(1);
+  });
+
+  it('can hand the opponent a win', () => {
+    const risky = boardFromRows([
+      '.......',
+      '.......',
+      '.......',
+      '.......',
+      'Y.Y..Y.',
+      'R.RR.R.',
+    ]);
+    const spun = applyAction(withBoard(risky, 1), { type: 'rotate', timeline: 0, spin: 'cw' });
+    expect(spun.status).toBe('won');
+    expect(spun.win!.player).toBe(0);
   });
 });

@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  COLS,
+  MAX_SIDE,
   PLAYER_NAMES,
-  ROWS,
+  Spin,
   getBoard,
   getTimeline,
   isPending,
@@ -31,11 +31,33 @@ export function GameScreen() {
     if (state.status === 'playing') setGameOverDismissed(false);
   }, [state.status]);
 
+  // Size cells so the board fits in either orientation (7 wide or 7 tall).
   const cellSize = useMemo(() => {
-    const byWidth = Math.floor((width - spacing.lg * 2) / COLS);
-    const byHeight = Math.floor((height * 0.38) / ROWS);
-    return Math.max(28, Math.min(58, byWidth, byHeight));
+    const byWidth = Math.floor((width - spacing.lg * 2) / MAX_SIDE);
+    const byHeight = Math.floor((height * 0.36) / MAX_SIDE);
+    return Math.max(26, Math.min(56, byWidth, byHeight));
   }, [width, height]);
+
+  // Spinning: turn the board view a quarter turn, then swap in the spun board.
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const [spinning, setSpinning] = useState(false);
+  const rotation = spinAnim.interpolate({ inputRange: [-1, 1], outputRange: ['-90deg', '90deg'] });
+  // Shrink a little mid-turn so the board's corners stay clear of the text around it.
+  const shrink = spinAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: [1, 0.8, 1, 0.8, 1] });
+  const startSpin = (direction: Spin) => {
+    if (spinning || !game.canSpin) return;
+    setSpinning(true);
+    Animated.timing(spinAnim, {
+      toValue: direction === 'cw' ? 1 : -1,
+      duration: 380,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      game.spin(direction);
+      spinAnim.setValue(0);
+      setSpinning(false);
+    });
+  };
 
   const board = getBoard(state, focus) ?? state.timelines[0].boards[0];
   const timeline = getTimeline(state, focus.timeline);
@@ -76,7 +98,9 @@ export function GameScreen() {
         ? 'Disc picked up. Tap a glowing board on the map to send it there.'
         : 'No past board can take this disc yet. Play a few more turns first.';
   } else if (focusIsPending) {
-    hint = 'Tap a column to drop a disc, or tap one of your discs to send it into the past.';
+    hint = board.spun
+      ? 'Freshly spun. Tap a column to drop a disc, or tap one of your discs to send it into the past.'
+      : 'Tap a column to drop a disc, spin the board, or tap one of your discs to send it into the past.';
   } else {
     hint = 'This board is history. Only time travel can change it.';
   }
@@ -105,15 +129,26 @@ export function GameScreen() {
       </View>
 
       <Text style={styles.boardTitle}>{boardTitle}</Text>
-      <DiscBoard
-        board={board}
-        cellSize={cellSize}
-        interactive={state.status === 'playing' && (focusIsPending || landingHere)}
-        selected={selectedDisc}
-        highlight={winCells}
-        ghostPlayer={state.status === 'playing' && (focusIsPending || landingHere) && selection.kind !== 'disc' ? mover : null}
-        onPressCell={game.pressCell}
-      />
+      <View style={{ height: cellSize * MAX_SIDE + 8, justifyContent: 'center' }}>
+        <Animated.View style={{ transform: [{ rotate: rotation }, { scale: shrink }] }}>
+          <DiscBoard
+            board={board}
+            cellSize={cellSize}
+            interactive={!spinning && state.status === 'playing' && (focusIsPending || landingHere)}
+            selected={selectedDisc}
+            highlight={winCells}
+            ghostPlayer={state.status === 'playing' && (focusIsPending || landingHere) && selection.kind !== 'disc' ? mover : null}
+            onPressCell={game.pressCell}
+          />
+        </Animated.View>
+      </View>
+      {state.status === 'playing' && focusIsPending && selection.kind === 'none' ? (
+        <View style={styles.spinRow}>
+          <Button label="↺  Spin left" small onPress={() => startSpin('ccw')} disabled={!game.canSpin || spinning} />
+          <View style={{ width: spacing.md }} />
+          <Button label="Spin right  ↻" small onPress={() => startSpin('cw')} disabled={!game.canSpin || spinning} />
+        </View>
+      ) : null}
 
       <View style={styles.hintRow}>
         <Text style={[styles.hint, game.error ? { color: colors.danger } : null]} numberOfLines={3}>
@@ -182,6 +217,7 @@ const styles = StyleSheet.create({
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
   statusText: { color: colors.text, fontWeight: '700', fontSize: 14 },
   boardTitle: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginBottom: spacing.xs },
+  spinRow: { flexDirection: 'row', justifyContent: 'center', marginTop: spacing.sm },
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',

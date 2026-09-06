@@ -11,15 +11,20 @@
  *    out of the newest board (the column above it collapses) and drop it into
  *    a past board where it was also your move. That past board branches into
  *    a brand-new timeline, and your opponent now has one more board to play.
+ *  - Or spin the board: turn it a quarter turn and every disc falls to the
+ *    new bottom. A board that was just spun can't be spun again, and an
+ *    empty board can't be spun at all.
  *  - Four in a row on ANY board wins the whole game instantly.
  */
 import {
   Board,
+  Spin,
   cellAt,
   dropDisc,
   emptyBoard,
   isFull,
   removeDisc,
+  rotate,
   winnerOf,
 } from './board';
 import { BoardRef, otherPlayer, Player, playerToMoveAt, sameRef } from './types';
@@ -47,6 +52,7 @@ export interface WinInfo {
 
 export type Action =
   | { type: 'drop'; timeline: number; col: number }
+  | { type: 'rotate'; timeline: number; spin: Spin }
   | {
       type: 'travel';
       from: { timeline: number; row: number; col: number };
@@ -183,6 +189,14 @@ export function isTravelTarget(state: GameState, fromTimeline: number, ref: Boar
 
 export class IllegalAction extends Error {}
 
+/** Whether the newest board of a timeline may be spun right now. */
+export function canRotate(state: GameState, timeline: number): boolean {
+  const tl = state.timelines[timeline];
+  if (!tl || !pendingTimelines(state).some((p) => p.id === timeline)) return false;
+  const board = latestBoard(tl);
+  return !board.spun && board.cells.some((c) => c !== null);
+}
+
 function assertPending(state: GameState, timeline: number): Timeline {
   const tl = getTimeline(state, timeline);
   if (!pendingTimelines(state).some((p) => p.id === timeline)) {
@@ -203,6 +217,13 @@ export function applyAction(state: GameState, action: Action): GameState {
     const dropped = dropDisc(latestBoard(tl), action.col, me);
     if (!dropped) throw new IllegalAction('that column is full');
     timelines[tl.id].boards.push(dropped.board);
+    created.push(latestRef(timelines[tl.id]));
+  } else if (action.type === 'rotate') {
+    const tl = assertPending(state, action.timeline);
+    const board = latestBoard(tl);
+    if (board.spun) throw new IllegalAction('that board was just spun; play a disc first');
+    if (board.cells.every((c) => c === null)) throw new IllegalAction('spinning an empty board would change nothing');
+    timelines[tl.id].boards.push(rotate(board, action.spin));
     created.push(latestRef(timelines[tl.id]));
   } else {
     const from = assertPending(state, action.from.timeline);

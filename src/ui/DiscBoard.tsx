@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Board, COLS, ROWS, index, type Player } from '../engine';
+import { Board, index, type Player } from '../engine';
 import { colors, playerColor, radius } from './theme';
 
 interface Props {
@@ -17,19 +17,19 @@ interface Props {
   onPressCell?: (row: number, col: number) => void;
 }
 
-/** The big playable board: 7 columns by 6 rows of discs. */
+/** The big playable board. Its width and height follow the board, which may have been spun. */
 export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, onPressCell }: Props) {
   const gap = Math.max(2, Math.round(cellSize * 0.08));
   const disc = cellSize - gap * 2;
   const rows: React.ReactNode[] = [];
-  for (let r = ROWS - 1; r >= 0; r--) {
+  for (let r = board.rows - 1; r >= 0; r--) {
     const cells: React.ReactNode[] = [];
-    for (let c = 0; c < COLS; c++) {
-      const value = board.cells[index(r, c)];
+    for (let c = 0; c < board.cols; c++) {
+      const value = board.cells[index(board, r, c)];
       const isSelected = !!selected && selected.row === r && selected.col === c;
-      const isHighlighted = highlight?.includes(index(r, c)) ?? false;
+      const isHighlighted = highlight?.includes(index(board, r, c)) ?? false;
       const isGhost =
-        ghostPlayer != null && value === null && (r === 0 || board.cells[index(r - 1, c)] !== null);
+        ghostPlayer != null && value === null && (r === 0 || board.cells[index(board, r - 1, c)] !== null);
       cells.push(
         <Pressable
           key={c}

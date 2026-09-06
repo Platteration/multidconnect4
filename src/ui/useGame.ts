@@ -4,7 +4,9 @@ import {
   BoardRef,
   GameState,
   IllegalAction,
+  Spin,
   applyAction,
+  canRotate,
   getTimeline,
   index,
   isPending,
@@ -38,10 +40,14 @@ export interface GameController {
   focus: BoardRef;
   selection: Selection;
   targets: BoardRef[];
+  /** True when the focused board may be spun right now. */
+  canSpin: boolean;
   error: string | null;
   canUndo: boolean;
   focusBoard: (ref: BoardRef) => void;
   pressCell: (row: number, col: number) => void;
+  /** Spin the focused board a quarter turn; gravity does the rest. */
+  spin: (spin: Spin) => void;
   cancel: () => void;
   undo: () => void;
   restart: () => void;
@@ -123,7 +129,7 @@ export function useGame(): GameController {
 
       const tl = getTimeline(state, focus.timeline);
       const board = tl.boards[tl.boards.length - 1];
-      const mine = board.cells[index(row, col)] === state.toMove;
+      const mine = board.cells[index(board, row, col)] === state.toMove;
 
       if (mine) {
         const from: DiscRef = { timeline: focus.timeline, row, col };
@@ -143,6 +149,14 @@ export function useGame(): GameController {
       commit({ type: 'drop', timeline: focus.timeline, col });
     },
     [state, focus, selection, commit],
+  );
+
+  const spin = useCallback(
+    (direction: Spin) => {
+      if (selection.kind !== 'none') return;
+      commit({ type: 'rotate', timeline: focus.timeline, spin: direction });
+    },
+    [selection, focus.timeline, commit],
   );
 
   const cancel = useCallback(() => {
@@ -180,10 +194,12 @@ export function useGame(): GameController {
     focus,
     selection,
     targets,
+    canSpin: selection.kind === 'none' && isPending(state, focus) && canRotate(state, focus.timeline),
     error,
     canUndo: history.length > 1,
     focusBoard,
     pressCell,
+    spin,
     cancel,
     undo,
     restart,
