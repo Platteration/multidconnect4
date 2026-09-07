@@ -4,7 +4,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   GameState,
   MAX_SIDE,
-  PLAYER_NAMES,
   Spin,
   getBoard,
   getTimeline,
@@ -23,7 +22,8 @@ import { MenuModal } from './MenuModal';
 import { Button, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { Row, Section, SettingsModal } from './SettingsModal';
-import { colors, playerColor, radius, spacing } from './theme';
+import { Theme, radius, spacing } from './theme';
+import { useTheme } from '../app/theme';
 import { useGame } from './useGame';
 
 interface Props {
@@ -32,6 +32,8 @@ interface Props {
 }
 
 export function GameScreen({ initialHistory }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant } = useSettings();
   const rules = useMemo(
     () => ({ popOut: !!settings.variants.popOut, flip: !!settings.variants.flip }),
@@ -105,15 +107,15 @@ export function GameScreen({ initialHistory }: Props) {
 
   const status =
     state.status === 'won' && state.win
-      ? `${PLAYER_NAMES[state.win.player]} wins!`
+      ? `${colors.playerNames[state.win.player]} wins!`
       : state.status === 'draw'
         ? 'Draw - every board is full'
-        : `${PLAYER_NAMES[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting`;
+        : `${colors.playerNames[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting`;
 
   let boardTitle = `${timelineLabel(focus.timeline)} · turn ${focus.turn}`;
   if (focusIsPending) boardTitle += ' · now';
   else if (focus.turn === latestRef(timeline).turn) boardTitle += ' · finished';
-  else boardTitle += ` · past (${PLAYER_NAMES[playerToMoveAt(focus.turn)]} was to move)`;
+  else boardTitle += ` · past (${colors.playerNames[playerToMoveAt(focus.turn)]} was to move)`;
 
   let hint: string;
   if (state.status !== 'playing') {
@@ -152,8 +154,8 @@ export function GameScreen({ initialHistory }: Props) {
         <Button label="Menu" small onPress={() => setMenuOpen(true)} />
       </View>
 
-      <View style={[styles.statusPill, { borderColor: state.win ? playerColor(state.win.player) : playerColor(mover) }]}>
-        <View style={[styles.dot, { backgroundColor: state.win ? playerColor(state.win.player) : playerColor(mover) }]} />
+      <View style={[styles.statusPill, { borderColor: state.win ? colors.players[state.win.player] : colors.players[mover] }]}>
+        <View style={[styles.dot, { backgroundColor: state.win ? colors.players[state.win.player] : colors.players[mover] }]} />
         <Text style={styles.statusText}>{status}</Text>
       </View>
 
@@ -217,9 +219,9 @@ export function GameScreen({ initialHistory }: Props) {
         <Text style={styles.mapLegend}>
           {state.status !== 'playing' ? null : selection.kind === 'none' ? (
             <>
-              <Text style={{ color: playerColor(mover) }}>■</Text> waiting for {PLAYER_NAMES[mover]}
+              <Text style={{ color: colors.players[mover] }}>■</Text> waiting for {colors.playerNames[mover]}
               {'   '}
-              <Text style={{ color: playerColor(otherPlayer(mover)) }}>t</Text> = {PLAYER_NAMES[otherPlayer(mover)]}'s turns
+              <Text style={{ color: colors.players[otherPlayer(mover)] }}>t</Text> = {colors.playerNames[otherPlayer(mover)]}'s turns
             </>
           ) : (
             <>
@@ -263,7 +265,8 @@ export function GameScreen({ initialHistory }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Theme) =>
+  StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',

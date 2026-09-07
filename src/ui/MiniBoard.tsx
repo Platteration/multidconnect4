@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Board, MAX_SIDE, index } from '../engine';
-import { colors, playerColor } from './theme';
+import { Theme } from './theme';
+import { useTheme } from '../app/theme';
 
 export const MINI_CELL = 7;
 /** Thumbnails are square so a spun board takes the same slot as an upright one. */
@@ -20,6 +21,8 @@ interface Props {
 
 /** A thumbnail of one board, used in the multiverse map. */
 export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge, onPress, accessibilityLabel }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const rows: React.ReactNode[] = [];
   for (let r = board.rows - 1; r >= 0; r--) {
     const cells: React.ReactNode[] = [];
@@ -28,7 +31,7 @@ export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge
       cells.push(
         <View
           key={c}
-          style={[styles.cell, v !== null && { backgroundColor: playerColor(v) }]}
+          style={[styles.cell, v !== null && { backgroundColor: colors.players[v] }]}
         />,
       );
     }
@@ -61,7 +64,8 @@ export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge
   );
 });
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Theme) =>
+  StyleSheet.create({
   board: {
     width: MINI_WIDTH,
     height: MINI_HEIGHT,

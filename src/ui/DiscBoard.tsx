@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Board, index, type Player } from '../engine';
-import { colors, playerColor, radius } from './theme';
+import { Theme, radius } from './theme';
+import { useTheme } from '../app/theme';
 
 interface Props {
   board: Board;
@@ -21,6 +22,8 @@ interface Props {
 
 /** The big playable board. Its width and height follow the board, which may have been spun. */
 export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, patterns, onPressCell }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const gap = Math.max(2, Math.round(cellSize * 0.08));
   const disc = cellSize - gap * 2;
   const rows: React.ReactNode[] = [];
@@ -39,14 +42,14 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
           disabled={!interactive}
           style={{ width: cellSize, height: cellSize, padding: gap }}
           accessibilityRole="button"
-          accessibilityLabel={`row ${r + 1} column ${c + 1}${value === null ? ' empty' : value === 0 ? ' red' : ' yellow'}`}
+          accessibilityLabel={`row ${r + 1} column ${c + 1} ${value === null ? 'empty' : colors.playerNames[value].toLowerCase()}`}
         >
           <View
             style={[
               styles.hole,
               { width: disc, height: disc, borderRadius: disc / 2 },
-              value !== null && { backgroundColor: playerColor(value), borderColor: colors.playersDark[value] },
-              isGhost && { backgroundColor: playerColor(ghostPlayer!), opacity: 0.14, borderColor: 'transparent' },
+              value !== null && { backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
+              isGhost && { backgroundColor: colors.players[ghostPlayer!], opacity: 0.14, borderColor: 'transparent' },
               isSelected && styles.selected,
               isHighlighted && styles.highlighted,
             ]}
@@ -67,6 +70,8 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
 
 /** Red discs get a solid dot, Yellow discs a hollow ring. */
 function Marker({ player, size }: { player: Player; size: number }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const d = Math.round(size * 0.36);
   return (
     <View style={styles.markerWrap}>
@@ -84,7 +89,8 @@ function Marker({ player, size }: { player: Player; size: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Theme) =>
+  StyleSheet.create({
   markerWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   board: {
     backgroundColor: colors.board,

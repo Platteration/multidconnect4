@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   BoardRef,
   GameState,
-  PLAYER_NAMES,
   latestTurn,
   maxTurn,
   playerToMoveAt,
@@ -11,7 +10,8 @@ import {
   timelineLabel,
 } from '../engine';
 import { MINI_HEIGHT, MINI_WIDTH, MiniBoard } from './MiniBoard';
-import { colors, playerColor, spacing } from './theme';
+import { Theme, spacing } from './theme';
+import { useTheme } from '../app/theme';
 
 const SLOT = MINI_WIDTH + 10;
 const ROW = MINI_HEIGHT + 16;
@@ -31,6 +31,8 @@ interface Props {
  * each timeline is a row, starting at the turn where it branched off.
  */
 export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: Props) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const lastTurn = maxTurn(state);
   const width = (lastTurn + 2) * SLOT;
   const holding = origin !== null;
@@ -63,7 +65,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
               key={turn}
               style={[
                 styles.turnLabel,
-                { left: (turn + 1) * SLOT, width: SLOT, color: playerColor(playerToMoveAt(turn)) },
+                { left: (turn + 1) * SLOT, width: SLOT, color: colors.players[playerToMoveAt(turn)] },
               ]}
             >
               t{turn}
@@ -71,7 +73,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
           ))}
         </View>
         {state.timelines.map((tl) => {
-          const labelColor = tl.createdBy === null ? colors.textMuted : playerColor(tl.createdBy);
+          const labelColor = tl.createdBy === null ? colors.textMuted : colors.players[tl.createdBy];
           return (
             <View key={tl.id} style={[styles.timelineRow, { width }]}>
               <View style={[styles.label, { left: tl.startTurn * SLOT, borderColor: labelColor }]}>
@@ -105,7 +107,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
                   ring = colors.travel;
                   badge = 'GO';
                 } else if (isPending) {
-                  ring = playerColor(state.toMove);
+                  ring = colors.players[state.toMove];
                   badge = holding ? null : 'play';
                 } else if (isNew) {
                   badge = 'new';
@@ -121,7 +123,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
                       badge={badge}
                       dim={dim}
                       onPress={() => onPressBoard(ref)}
-                      accessibilityLabel={`${timelineLabel(tl.id)} turn ${turn}, ${PLAYER_NAMES[playerToMoveAt(turn)]} to move${isPending ? ', waiting' : ''}${isTarget ? ', travel target' : ''}`}
+                      accessibilityLabel={`${timelineLabel(tl.id)} turn ${turn}, ${colors.playerNames[playerToMoveAt(turn)]} to move${isPending ? ', waiting' : ''}${isTarget ? ', travel target' : ''}`}
                     />
                   </View>
                 );
@@ -138,7 +140,8 @@ function boardIsFull(cells: readonly (0 | 1 | null)[]): boolean {
   return cells.every((c) => c !== null);
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Theme) =>
+  StyleSheet.create({
   outer: { flex: 1 },
   turnRow: { height: 18, position: 'relative' },
   turnLabel: {
