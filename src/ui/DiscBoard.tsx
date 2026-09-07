@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { Board, index, type Player } from '../engine';
 import { Theme, radius } from './theme';
 import { useTheme } from '../app/theme';
@@ -17,11 +17,21 @@ interface Props {
   ghostPlayer?: Player | null;
   /** Draw a shape on each disc as well as its colour (colour-blind friendly). */
   patterns?: boolean;
+  /** The disc that just landed, animated falling into place. */
+  dropped?: { row: number; col: number } | null;
   onPressCell?: (row: number, col: number) => void;
 }
 
 /** The big playable board. Its width and height follow the board, which may have been spun. */
-export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, patterns, onPressCell }: Props) {
+export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, patterns, dropped, onPressCell }: Props) {
+  const fall = useRef(new Animated.Value(0)).current;
+  const dropKey = dropped ? `${dropped.row}-${dropped.col}-${board.cells.filter((c) => c !== null).length}` : null;
+  useEffect(() => {
+    if (!dropped) return;
+    fall.setValue(-(board.rows - dropped.row) * cellSize);
+    Animated.timing(fall, { toValue: 0, duration: 340, easing: Easing.bounce, useNativeDriver: true }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dropKey]);
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const gap = Math.max(2, Math.round(cellSize * 0.08));
@@ -44,10 +54,11 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
           accessibilityRole="button"
           accessibilityLabel={`row ${r + 1} column ${c + 1} ${value === null ? 'empty' : colors.playerNames[value].toLowerCase()}`}
         >
-          <View
+          <Animated.View
             style={[
               styles.hole,
               { width: disc, height: disc, borderRadius: disc / 2 },
+              dropped && dropped.row === r && dropped.col === c ? { transform: [{ translateY: fall }] } : null,
               value !== null && { backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
               isGhost && { backgroundColor: colors.players[ghostPlayer!], opacity: 0.14, borderColor: 'transparent' },
               isSelected && styles.selected,
@@ -55,7 +66,7 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
             ]}
           >
             {patterns && value !== null ? <Marker player={value} size={disc} /> : null}
-          </View>
+          </Animated.View>
         </Pressable>,
       );
     }

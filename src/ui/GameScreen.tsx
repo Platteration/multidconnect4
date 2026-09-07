@@ -6,6 +6,8 @@ import {
   GameState,
   MAX_SIDE,
   chooseAction,
+  dropRow,
+  sameRef,
   Spin,
   getBoard,
   getTimeline,
@@ -28,6 +30,7 @@ import { DiscBoard } from './DiscBoard';
 import { MenuModal } from './MenuModal';
 import { NewGameModal } from './NewGameModal';
 import { PuzzleResultModal } from './PuzzleResultModal';
+import { ExtrasModal } from './ExtrasModal';
 import { PuzzlesModal } from './PuzzlesModal';
 import { ReplayBar } from './ReplayBar';
 import { ShareModal } from './ShareModal';
@@ -61,6 +64,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const focus = replaying ? (state.lastCreated[0] ?? { timeline: 0, turn: 0 }) : game.focus;
   const humanTurn = game.humanTurn && !replaying;
   const [shareOpen, setShareOpen] = useState(false);
+  const [extrasOpen, setExtrasOpen] = useState(false);
   const shareCode = useMemo(
     () => (game.history.length > 1 && game.setup.mode !== 'puzzle' ? encodeGame(game.history, game.setup) : null),
     [game.history, game.setup],
@@ -218,6 +222,16 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     hint = 'This board is history. Only time travel can change it.';
   }
 
+  // The disc that just landed on the focused board, for the falling animation.
+  const dropped = useMemo(() => {
+    const a = state.lastAction;
+    if (!a || (a.type !== 'drop' && a.type !== 'travel')) return null;
+    const landedOn = a.type === 'drop' ? state.lastCreated[0] : state.lastCreated[1];
+    if (!landedOn || !sameRef(landedOn, focus)) return null;
+    const top = dropRow(board, a.col);
+    return { row: (top < 0 ? board.rows : top) - 1, col: a.col };
+  }, [state.lastAction, state.lastCreated, focus, board]);
+
   const winCells = state.win && state.win.board.timeline === focus.timeline && state.win.board.turn === focus.turn ? state.win.cells : undefined;
 
   return (
@@ -252,6 +266,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
             highlight={winCells}
             ghostPlayer={humanTurn && state.status === 'playing' && (focusIsPending || landingHere) && selection.kind !== 'disc' ? mover : null}
             patterns={settings.patterns}
+            dropped={dropped}
             onPressCell={game.pressCell}
           />
         </Animated.View>
@@ -338,6 +353,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           { label: 'Puzzles', onPress: () => setPuzzlesOpen(true) },
           { label: 'How to play', onPress: () => setRulesOpen(true) },
           { label: 'Settings', onPress: () => setSettingsOpen(true) },
+          { label: 'Extras', onPress: () => setExtrasOpen(true) },
         ]}
       />
       <NewGameModal
@@ -349,6 +365,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           game.startNew(setup);
         }}
       />
+      <ExtrasModal visible={extrasOpen} onClose={() => setExtrasOpen(false)} />
       <ShareModal
         visible={shareOpen}
         code={shareCode}
