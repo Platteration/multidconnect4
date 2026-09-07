@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Linking, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Linking, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Action,
@@ -182,11 +182,16 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   }, [state.status]);
 
   // Size cells so the board fits in either orientation (7 wide or 7 tall).
+  // Wide screens (tablets, phones on their side) put the map beside the board.
+  const landscape = width > height * 1.15;
+  // On a short wide screen the board column scrolls so the hint stays reachable.
+  const Left = landscape ? ScrollView : View;
   const cellSize = useMemo(() => {
-    const byWidth = Math.floor((width - spacing.lg * 2) / MAX_SIDE);
-    const byHeight = Math.floor((height * 0.36) / MAX_SIDE);
+    const usable = landscape ? width * 0.5 - spacing.lg * 2 : width - spacing.lg * 2;
+    const byWidth = Math.floor(usable / MAX_SIDE);
+    const byHeight = Math.floor((height * (landscape ? 0.6 : 0.36)) / MAX_SIDE);
     return Math.max(26, Math.min(56, byWidth, byHeight));
-  }, [width, height]);
+  }, [width, height, landscape]);
 
   // Spinning: turn the board view a quarter turn, then swap in the spun board.
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -335,6 +340,8 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         <Button label="Menu" small onPress={() => setMenuOpen(true)} />
       </View>
 
+      <View style={landscape ? styles.split : styles.stack}>
+      <Left style={landscape ? styles.splitLeft : undefined}>
       <View style={[styles.statusPill, { borderColor: state.win ? colors.players[state.win.player] : colors.players[mover] }]}>
         <View style={[styles.dot, { backgroundColor: state.win ? colors.players[state.win.player] : colors.players[mover] }]} />
         <Text style={styles.statusText}>{status}</Text>
@@ -400,6 +407,8 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         ) : null}
       </View>
 
+      </Left>
+      <View style={landscape ? styles.splitRight : styles.stack}>
       <View style={styles.mapHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.mapTitle}>Multiverse</Text>
@@ -429,6 +438,9 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       </View>
       <View style={styles.map}>
         <MultiverseMap state={state} focus={focus} targets={targets} origin={origin} onPressBoard={game.focusBoard} />
+      </View>
+
+      </View>
       </View>
 
       <MenuModal
@@ -534,6 +546,10 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
 const makeStyles = (colors: Theme) =>
   StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
+  stack: { flex: 1 },
+  split: { flex: 1, flexDirection: 'row' },
+  splitLeft: { flex: 1, justifyContent: 'flex-start' },
+  splitRight: { flex: 1, paddingTop: spacing.sm },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
