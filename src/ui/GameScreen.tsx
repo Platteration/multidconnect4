@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  BOT_NAMES,
   GameState,
   MAX_SIDE,
+  chooseAction,
   Spin,
   getBoard,
   getTimeline,
@@ -17,8 +19,10 @@ import {
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { keys, removeKey, saveJson } from '../app/persist';
 import { useSettings } from '../app/settings';
+import { GameSetup } from '../app/setup';
 import { DiscBoard } from './DiscBoard';
 import { MenuModal } from './MenuModal';
+import { NewGameModal } from './NewGameModal';
 import { Button, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { Row, Section, SettingsModal } from './SettingsModal';
@@ -29,9 +33,10 @@ import { useGame } from './useGame';
 interface Props {
   /** A saved game to resume, oldest state first. */
   initialHistory?: GameState[];
+  initialSetup?: GameSetup;
 }
 
-export function GameScreen({ initialHistory }: Props) {
+export function GameScreen({ initialHistory, initialSetup }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant } = useSettings();
@@ -39,12 +44,13 @@ export function GameScreen({ initialHistory }: Props) {
     () => ({ popOut: !!settings.variants.popOut, flip: !!settings.variants.flip }),
     [settings.variants.popOut, settings.variants.flip],
   );
-  const game = useGame(initialHistory, rules);
-  const { state, focus, selection, targets } = game;
+  const game = useGame(initialHistory, rules, initialSetup);
+  const { state, focus, selection, targets, humanTurn } = game;
   const { width, height } = useWindowDimensions();
   const [rulesOpen, setRulesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [newGameOpen, setNewGameOpen] = useState(false);
   const [gameOverDismissed, setGameOverDismissed] = useState(false);
 
   useEffect(() => setHapticsEnabled(settings.haptics), [settings.haptics]);
@@ -53,11 +59,11 @@ export function GameScreen({ initialHistory }: Props) {
   // Save the game whenever it changes, a moment after the last change.
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (game.history.length > 1) void saveJson(keys.game, { version: 1, history: game.history });
+      if (game.history.length > 1) void saveJson(keys.game, { version: 2, history: game.history, setup: game.setup });
       else void removeKey(keys.game);
     }, 250);
     return () => clearTimeout(timer);
-  }, [game.history]);
+  }, [game.history, game.setup]);
 
   useEffect(() => {
     if (state.status === 'playing') setGameOverDismissed(false);
@@ -73,23 +79,51 @@ export function GameScreen({ initialHistory }: Props) {
   // Spinning: turn the board view a quarter turn, then swap in the spun board.
   const spinAnim = useRef(new Animated.Value(0)).current;
   const [spinning, setSpinning] = useState(false);
-  const rotation = spinAnim.interpolate({ inputRange: [-1, 1], outputRange: ['-90deg', '90deg'] });
+  const rotation = spinAnim.interpolate({ inputRange: [-1, 0, 1, 2], outputRange: ['-90deg', '0deg', '90deg', '180deg'] });
   // Shrink a little mid-turn so the board's corners stay clear of the text around it.
-  const shrink = spinAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1], outputRange: [1, 0.8, 1, 0.8, 1] });
-  const startSpin = (direction: Spin) => {
-    if (spinning || !game.canSpin) return;
+  const shrink = spinAnim.interpolate({ inputRange: [-1, -0.5, 0, 0.5, 1, 1.5, 2], outputRange: [1, 0.8, 1, 0.8, 1, 0.8, 1] });
+  const animateSpin = (direction: Spin | 'flip', done: () => void) => {
     setSpinning(true);
     Animated.timing(spinAnim, {
-      toValue: direction === 'cw' ? 1 : -1,
-      duration: 380,
+      toValue: direction === 'cw' ? 1 : direction === 'ccw' ? -1 : 2,
+      duration: direction === 'flip' ? 520 : 380,
       easing: Easing.inOut(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
-      game.spin(direction);
+      done();
       spinAnim.setValue(0);
       setSpinning(false);
     });
   };
+  const startSpin = (direction: Spin) => {
+    if (spinning || !game.canSpin || !humanTurn) return;
+    animateSpin(direction, () => game.spin(direction));
+  };
+  const startFlip = () => {
+    if (spinning || !game.canSpin || !humanTurn) return;
+    animateSpin('flip', () => game.flip());
+  };
+
+  // The bot's turn: one action at a time, with a beat between them so the
+  // person can follow what is happening across the boards.
+  const bot = game.setup.mode === 'bot' ? game.setup.bot : undefined;
+  useEffect(() => {
+    if (!bot || humanTurn || spinning || state.status !== 'playing') return;
+    const timer = setTimeout(() => {
+      const action = chooseAction(state, bot.level);
+      if (!action) return;
+      if (action.type === 'rotate') {
+        game.focusBoard({ timeline: action.timeline, turn: state.timelines[action.timeline].boards.length - 1 + state.timelines[action.timeline].startTurn });
+        animateSpin(action.spin, () => game.play(action));
+      } else if (action.type === 'flip') {
+        animateSpin('flip', () => game.play(action));
+      } else {
+        game.play(action);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, bot, humanTurn, spinning]);
 
   const board = getBoard(state, focus) ?? state.timelines[0].boards[0];
   const timeline = getTimeline(state, focus.timeline);
@@ -110,7 +144,10 @@ export function GameScreen({ initialHistory }: Props) {
       ? `${colors.playerNames[state.win.player]} wins!`
       : state.status === 'draw'
         ? 'Draw - every board is full'
-        : `${colors.playerNames[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting`;
+        : !humanTurn && bot
+          ? `${BOT_NAMES[bot.level]} is thinking…`
+          : `${colors.playerNames[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting`;
+  const subtitle = bot ? `you vs ${BOT_NAMES[bot.level]} · you are ${colors.playerNames[bot.player === 0 ? 1 : 0]}` : 'with multiverse time travel';
 
   let boardTitle = `${timelineLabel(focus.timeline)} · turn ${focus.turn}`;
   if (focusIsPending) boardTitle += ' · now';
@@ -130,6 +167,8 @@ export function GameScreen({ initialHistory }: Props) {
         ? 'Disc picked up. Tap a glowing board on the map to send it there.'
         : 'No past board can take this disc yet. Play a few more turns first.';
     if (game.canPopOut) hint += ' Or pop it out of the bottom row.';
+  } else if (!humanTurn) {
+    hint = 'The bot is taking its turn.';
   } else if (focusIsPending) {
     hint = board.spun
       ? 'Freshly spun. Tap a column to drop a disc, or tap one of your discs to send it into the past.'
@@ -147,7 +186,9 @@ export function GameScreen({ initialHistory }: Props) {
           <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit>
             5D Connect Four
           </Text>
-          <Text style={styles.subtitle}>with multiverse time travel</Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
         </View>
         <Button label="Undo" small onPress={game.undo} disabled={!game.canUndo} />
         <View style={{ width: spacing.xs }} />
@@ -165,7 +206,7 @@ export function GameScreen({ initialHistory }: Props) {
           <DiscBoard
             board={board}
             cellSize={cellSize}
-            interactive={!spinning && state.status === 'playing' && (focusIsPending || landingHere)}
+            interactive={!spinning && humanTurn && state.status === 'playing' && (focusIsPending || landingHere)}
             selected={selectedDisc}
             highlight={winCells}
             ghostPlayer={state.status === 'playing' && (focusIsPending || landingHere) && selection.kind !== 'disc' ? mover : null}
@@ -174,13 +215,13 @@ export function GameScreen({ initialHistory }: Props) {
           />
         </Animated.View>
       </View>
-      {state.status === 'playing' && focusIsPending && selection.kind === 'none' ? (
+      {state.status === 'playing' && humanTurn && focusIsPending && selection.kind === 'none' ? (
         <View style={styles.spinRow}>
           <Button label="↺  Spin left" small onPress={() => startSpin('ccw')} disabled={!game.canSpin || spinning} />
           {state.rules.flip ? (
             <>
               <View style={{ width: spacing.sm }} />
-              <Button label="Flip ⟳" small onPress={game.flip} disabled={!game.canSpin || spinning} />
+              <Button label="Flip ⟳" small onPress={startFlip} disabled={!game.canSpin || spinning} />
             </>
           ) : null}
           <View style={{ width: spacing.sm }} />
@@ -238,11 +279,20 @@ export function GameScreen({ initialHistory }: Props) {
         visible={menuOpen}
         onClose={() => setMenuOpen(false)}
         gameInProgress={game.canUndo && state.status === 'playing'}
-        onNewGame={game.restart}
+        onNewGame={() => setNewGameOpen(true)}
         items={[
           { label: 'How to play', onPress: () => setRulesOpen(true) },
           { label: 'Settings', onPress: () => setSettingsOpen(true) },
         ]}
+      />
+      <NewGameModal
+        visible={newGameOpen}
+        initial={game.setup}
+        onClose={() => setNewGameOpen(false)}
+        onStart={(setup) => {
+          setNewGameOpen(false);
+          game.startNew(setup);
+        }}
       />
       <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <Section title="Variants (apply to new games)">
@@ -258,7 +308,10 @@ export function GameScreen({ initialHistory }: Props) {
       <GameOverModal
         state={state}
         visible={state.status !== 'playing' && !gameOverDismissed}
-        onRestart={game.restart}
+        onRestart={() => {
+          setGameOverDismissed(true);
+          setNewGameOpen(true);
+        }}
         onDismiss={() => setGameOverDismissed(true)}
       />
     </SafeAreaView>
