@@ -74,6 +74,10 @@ export function RulesModal({ visible, onClose }: RulesProps) {
               On your turn you must make one move on every board marked "play". Only then does the
               turn pass. More timelines means more to keep track of, for both of you.
             </Rule>
+            <Rule head="Variants.">
+              In Settings you can turn on "pop out" (pull one of your own discs out of the bottom
+              row as a move) and "flip" (turn the board upside down). They apply to the next new game.
+            </Rule>
             <Rule head="Full boards are finished.">
               A board with no empty slots just sits there. If every board is full with no winner, the
               game is a draw.

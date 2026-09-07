@@ -14,6 +14,8 @@
  *  - Or spin the board: turn it a quarter turn and every disc falls to the
  *    new bottom. A board that was just spun can't be spun again, and an
  *    empty board can't be spun at all.
+ *  - Optional variants: "pop out" lets you pull one of your own discs out
+ *    of the bottom row as a move; "flip" turns the board upside down.
  *  - Four in a row on ANY board wins the whole game instantly.
  */
 import {
@@ -22,6 +24,7 @@ import {
   cellAt,
   dropDisc,
   emptyBoard,
+  flip,
   isFull,
   removeDisc,
   rotate,
@@ -50,9 +53,21 @@ export interface WinInfo {
   cells: number[];
 }
 
+/** Optional rule variants, fixed for the whole game. */
+export interface Rules {
+  /** You may remove one of your own discs from the bottom row as your move. */
+  popOut: boolean;
+  /** You may turn the board upside down as your move. */
+  flip: boolean;
+}
+
+export const DEFAULT_RULES: Rules = { popOut: false, flip: false };
+
 export type Action =
   | { type: 'drop'; timeline: number; col: number }
   | { type: 'rotate'; timeline: number; spin: Spin }
+  | { type: 'flip'; timeline: number }
+  | { type: 'pop'; timeline: number; col: number }
   | {
       type: 'travel';
       from: { timeline: number; row: number; col: number };
@@ -61,6 +76,7 @@ export type Action =
     };
 
 export interface GameState {
+  rules: Rules;
   timelines: Timeline[];
   toMove: Player;
   status: Status;
@@ -72,8 +88,9 @@ export interface GameState {
   lastCreated: BoardRef[];
 }
 
-export function newGame(): GameState {
+export function newGame(rules: Partial<Rules> = {}): GameState {
   return {
+    rules: { ...DEFAULT_RULES, ...rules },
     timelines: [
       {
         id: 0,
@@ -218,12 +235,20 @@ export function applyAction(state: GameState, action: Action): GameState {
     if (!dropped) throw new IllegalAction('that column is full');
     timelines[tl.id].boards.push(dropped.board);
     created.push(latestRef(timelines[tl.id]));
-  } else if (action.type === 'rotate') {
+  } else if (action.type === 'rotate' || action.type === 'flip') {
     const tl = assertPending(state, action.timeline);
     const board = latestBoard(tl);
-    if (board.spun) throw new IllegalAction('that board was just spun; play a disc first');
-    if (board.cells.every((c) => c === null)) throw new IllegalAction('spinning an empty board would change nothing');
-    timelines[tl.id].boards.push(rotate(board, action.spin));
+    if (action.type === 'flip' && !state.rules.flip) throw new IllegalAction('flipping is not enabled in this game');
+    if (board.spun) throw new IllegalAction('that board was just turned; play a disc first');
+    if (board.cells.every((c) => c === null)) throw new IllegalAction('turning an empty board would change nothing');
+    timelines[tl.id].boards.push(action.type === 'flip' ? flip(board) : rotate(board, action.spin));
+    created.push(latestRef(timelines[tl.id]));
+  } else if (action.type === 'pop') {
+    if (!state.rules.popOut) throw new IllegalAction('pop out is not enabled in this game');
+    const tl = assertPending(state, action.timeline);
+    const board = latestBoard(tl);
+    if (cellAt(board, 0, action.col) !== me) throw new IllegalAction('you can only pop out your own disc from the bottom row');
+    timelines[tl.id].boards.push(removeDisc(board, 0, action.col));
     created.push(latestRef(timelines[tl.id]));
   } else {
     const from = assertPending(state, action.from.timeline);

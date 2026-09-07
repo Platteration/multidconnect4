@@ -5,6 +5,7 @@ import {
   BoardRef,
   GameState,
   IllegalAction,
+  Rules,
   Spin,
   applyAction,
   canRotate,
@@ -51,6 +52,12 @@ export interface GameController {
   pressCell: (row: number, col: number) => void;
   /** Spin the focused board a quarter turn; gravity does the rest. */
   spin: (spin: Spin) => void;
+  /** Turn the focused board upside down (only with the flip variant). */
+  flip: () => void;
+  /** Pop the picked-up disc out of the bottom row (only with the pop-out variant). */
+  popOut: () => void;
+  /** True when the held disc sits on the bottom row and pop-out is allowed. */
+  canPopOut: boolean;
   cancel: () => void;
   undo: () => void;
   restart: () => void;
@@ -66,8 +73,8 @@ function firstPending(state: GameState): BoardRef | null {
   return p.length ? latestRef(p[0]) : null;
 }
 
-export function useGame(initialHistory?: GameState[]): GameController {
-  const [history, setHistory] = useState<GameState[]>(() => (initialHistory?.length ? initialHistory : [newGame()]));
+export function useGame(initialHistory?: GameState[], rules: Partial<Rules> = {}): GameController {
+  const [history, setHistory] = useState<GameState[]>(() => (initialHistory?.length ? initialHistory : [newGame(rules)]));
   const [focus, setFocus] = useState<BoardRef>(() => {
     const last = initialHistory?.[initialHistory.length - 1];
     return (last && (last.win?.board ?? firstPending(last))) || { timeline: 0, turn: 0 };
@@ -94,6 +101,7 @@ export function useGame(initialHistory?: GameState[]): GameController {
           setFocus(next.win.board);
         } else {
           if (action.type === 'travel') feedback.warp();
+          else if (action.type === 'rotate' || action.type === 'flip') feedback.spin();
           else feedback.thud();
           // Prefer the board that was just created on the same timeline the
           // player was looking at; otherwise jump to whatever is waiting.
@@ -172,6 +180,16 @@ export function useGame(initialHistory?: GameState[]): GameController {
     [selection, focus.timeline, commit],
   );
 
+  const flip = useCallback(() => {
+    if (selection.kind !== 'none') return;
+    commit({ type: 'flip', timeline: focus.timeline });
+  }, [selection, focus.timeline, commit]);
+
+  const popOut = useCallback(() => {
+    if (selection.kind === 'none') return;
+    commit({ type: 'pop', timeline: selection.from.timeline, col: selection.from.col });
+  }, [selection, commit]);
+
   const cancel = useCallback(() => {
     setError(null);
     if (selection.kind !== 'none') {
@@ -193,9 +211,9 @@ export function useGame(initialHistory?: GameState[]): GameController {
   const restart = useCallback(() => {
     setError(null);
     setSelection(NONE);
-    setHistory([newGame()]);
+    setHistory([newGame(rules)]);
     setFocus({ timeline: 0, turn: 0 });
-  }, []);
+  }, [rules]);
 
   const goToWaitingBoard = useCallback(() => {
     const pending = firstPending(state);
@@ -221,6 +239,9 @@ export function useGame(initialHistory?: GameState[]): GameController {
     focusBoard,
     pressCell,
     spin,
+    flip,
+    popOut,
+    canPopOut: state.rules.popOut && selection.kind === 'disc' && selection.from.row === 0,
     cancel,
     undo,
     restart,

@@ -126,6 +126,17 @@ export function rotate(board: Board, spin: Spin): Board {
   return settle({ ...next, cells, spun: true });
 }
 
+/** Turn the board upside down (a half turn) and let every disc fall. Width and height stay. */
+export function flip(board: Board): Board {
+  const cells = Array<Cell>(board.rows * board.cols).fill(null);
+  for (let r = 0; r < board.rows; r++) {
+    for (let c = 0; c < board.cols; c++) {
+      cells[index(board, board.rows - 1 - r, board.cols - 1 - c)] = board.cells[index(board, r, c)];
+    }
+  }
+  return settle({ ...board, cells, spun: true });
+}
+
 export function sameCells(a: Board, b: Board): boolean {
   return a.cols === b.cols && a.rows === b.rows && a.cells.every((v, i) => v === b.cells[i]);
 }

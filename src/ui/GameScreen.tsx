@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   GameState,
@@ -15,14 +15,14 @@ import {
   playerToMoveAt,
   timelineLabel,
 } from '../engine';
-import { setHapticsEnabled } from '../app/feedback';
+import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { keys, removeKey, saveJson } from '../app/persist';
 import { useSettings } from '../app/settings';
 import { DiscBoard } from './DiscBoard';
 import { MenuModal } from './MenuModal';
 import { Button, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
-import { SettingsModal } from './SettingsModal';
+import { Row, Section, SettingsModal } from './SettingsModal';
 import { colors, playerColor, radius, spacing } from './theme';
 import { useGame } from './useGame';
 
@@ -32,16 +32,21 @@ interface Props {
 }
 
 export function GameScreen({ initialHistory }: Props) {
-  const game = useGame(initialHistory);
+  const { settings, setVariant } = useSettings();
+  const rules = useMemo(
+    () => ({ popOut: !!settings.variants.popOut, flip: !!settings.variants.flip }),
+    [settings.variants.popOut, settings.variants.flip],
+  );
+  const game = useGame(initialHistory, rules);
   const { state, focus, selection, targets } = game;
   const { width, height } = useWindowDimensions();
-  const { settings } = useSettings();
   const [rulesOpen, setRulesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [gameOverDismissed, setGameOverDismissed] = useState(false);
 
   useEffect(() => setHapticsEnabled(settings.haptics), [settings.haptics]);
+  useEffect(() => setSoundEnabled(settings.sound), [settings.sound]);
 
   // Save the game whenever it changes, a moment after the last change.
   useEffect(() => {
@@ -122,6 +127,7 @@ export function GameScreen({ initialHistory }: Props) {
       targets.length > 0
         ? 'Disc picked up. Tap a glowing board on the map to send it there.'
         : 'No past board can take this disc yet. Play a few more turns first.';
+    if (game.canPopOut) hint += ' Or pop it out of the bottom row.';
   } else if (focusIsPending) {
     hint = board.spun
       ? 'Freshly spun. Tap a column to drop a disc, or tap one of your discs to send it into the past.'
@@ -169,7 +175,13 @@ export function GameScreen({ initialHistory }: Props) {
       {state.status === 'playing' && focusIsPending && selection.kind === 'none' ? (
         <View style={styles.spinRow}>
           <Button label="↺  Spin left" small onPress={() => startSpin('ccw')} disabled={!game.canSpin || spinning} />
-          <View style={{ width: spacing.md }} />
+          {state.rules.flip ? (
+            <>
+              <View style={{ width: spacing.sm }} />
+              <Button label="Flip ⟳" small onPress={game.flip} disabled={!game.canSpin || spinning} />
+            </>
+          ) : null}
+          <View style={{ width: spacing.sm }} />
           <Button label="Spin right  ↻" small onPress={() => startSpin('cw')} disabled={!game.canSpin || spinning} />
         </View>
       ) : null}
@@ -179,7 +191,15 @@ export function GameScreen({ initialHistory }: Props) {
           {game.error ?? hint}
         </Text>
         {selection.kind !== 'none' ? (
-          <Button label="Cancel" small onPress={game.cancel} />
+          <View style={{ flexDirection: 'row' }}>
+            {game.canPopOut ? (
+              <>
+                <Button label="Pop out ⤓" small tone="primary" onPress={game.popOut} />
+                <View style={{ width: spacing.xs }} />
+              </>
+            ) : null}
+            <Button label="Cancel" small onPress={game.cancel} />
+          </View>
         ) : !focusIsPending && state.status === 'playing' ? (
           <Button label="Go play" small tone="primary" onPress={game.goToWaitingBoard} />
         ) : null}
@@ -222,7 +242,16 @@ export function GameScreen({ initialHistory }: Props) {
           { label: 'Settings', onPress: () => setSettingsOpen(true) },
         ]}
       />
-      <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        <Section title="Variants (apply to new games)">
+          <Row label="Pop out" hint="Pull one of your own discs out of the bottom row as a move.">
+            <Switch value={!!settings.variants.popOut} onValueChange={(v) => setVariant('popOut', v)} />
+          </Row>
+          <Row label="Flip" hint="Turn the board upside down as a move, gravity included.">
+            <Switch value={!!settings.variants.flip} onValueChange={(v) => setVariant('flip', v)} />
+          </Row>
+        </Section>
+      </SettingsModal>
       <RulesModal visible={rulesOpen} onClose={() => setRulesOpen(false)} />
       <GameOverModal
         state={state}

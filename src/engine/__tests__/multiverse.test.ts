@@ -297,7 +297,7 @@ describe('spinning the board', () => {
     expect(() => applyAction(newGame(), { type: 'rotate', timeline: 0, spin: 'cw' })).toThrow(IllegalAction);
     const g = play(newGame(), drop(0, 3), { type: 'rotate', timeline: 0, spin: 'ccw' });
     expect(canRotate(g, 0)).toBe(false);
-    expect(() => applyAction(g, { type: 'rotate', timeline: 0, spin: 'cw' })).toThrow(/just spun/);
+    expect(() => applyAction(g, { type: 'rotate', timeline: 0, spin: 'cw' })).toThrow(/just turned/);
     // A drop clears the restriction.
     const after = applyAction(g, drop(0, 0));
     expect(canRotate(after, 0)).toBe(true);
@@ -352,5 +352,60 @@ describe('spinning the board', () => {
     const spun = applyAction(withBoard(risky, 1), { type: 'rotate', timeline: 0, spin: 'cw' });
     expect(spun.status).toBe('won');
     expect(spun.win!.player).toBe(0);
+  });
+});
+
+describe('variants', () => {
+  const stacked = boardFromRows([
+    '.......',
+    '.......',
+    '.......',
+    '.......',
+    'Y......',
+    'RYY....',
+  ]);
+
+  it('are off by default', () => {
+    const g = play(newGame(), drop(0, 0), drop(0, 1));
+    expect(() => applyAction(g, { type: 'pop', timeline: 0, col: 0 })).toThrow(/not enabled/);
+    expect(() => applyAction(g, { type: 'flip', timeline: 0 })).toThrow(/not enabled/);
+  });
+
+  it('pop out removes your own bottom disc and collapses the column', () => {
+    const g: GameState = {
+      ...newGame({ popOut: true }),
+      timelines: [{ id: 0, startTurn: 0, boards: [emptyBoard(), emptyBoard(), stacked], createdBy: null, branchedFrom: null, origin: null }],
+      toMove: 0,
+    };
+    expect(() => applyAction(g, { type: 'pop', timeline: 0, col: 1 })).toThrow(/your own/);
+    const popped = applyAction(g, { type: 'pop', timeline: 0, col: 0 });
+    const board = getBoard(popped, { timeline: 0, turn: 3 })!;
+    expect(cellAt(board, 0, 0)).toBe(1);
+    expect(cellAt(board, 1, 0)).toBeNull();
+    expect(popped.toMove).toBe(1);
+  });
+
+  it('flip turns the board upside down with gravity and keeps its size', () => {
+    const g: GameState = {
+      ...newGame({ flip: true }),
+      timelines: [{ id: 0, startTurn: 0, boards: [emptyBoard(), emptyBoard(), stacked], createdBy: null, branchedFrom: null, origin: null }],
+      toMove: 0,
+    };
+    const flipped = applyAction(g, { type: 'flip', timeline: 0 });
+    const board = getBoard(flipped, { timeline: 0, turn: 3 })!;
+    expect(board.cols).toBe(7);
+    expect(board.spun).toBe(true);
+    // Column 0 (R below Y) ends up in column 6 with Y below R; the Ys in
+    // columns 1 and 2 land in columns 5 and 4.
+    expect(cellAt(board, 0, 6)).toBe(1);
+    expect(cellAt(board, 1, 6)).toBe(0);
+    expect(cellAt(board, 0, 5)).toBe(1);
+    expect(cellAt(board, 0, 4)).toBe(1);
+    expect(() => applyAction(flipped, { type: 'flip', timeline: 0 })).toThrow(/just turned/);
+  });
+
+  it('keeps the rules on the state so a saved game replays the same way', () => {
+    expect(newGame({ popOut: true }).rules).toEqual({ popOut: true, flip: false });
+    expect(play(newGame({ flip: true }), drop(0, 3)).rules.flip).toBe(true);
   });
 });
