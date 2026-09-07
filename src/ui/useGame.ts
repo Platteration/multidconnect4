@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import * as feedback from '../app/feedback';
 import {
   Action,
   BoardRef,
@@ -37,6 +38,8 @@ export type Selection =
 
 export interface GameController {
   state: GameState;
+  /** Every state so far, oldest first. Saved so a game survives closing the app. */
+  history: GameState[];
   focus: BoardRef;
   selection: Selection;
   targets: BoardRef[];
@@ -52,6 +55,8 @@ export interface GameController {
   undo: () => void;
   restart: () => void;
   goToWaitingBoard: () => void;
+  /** Cycle focus through the boards still waiting for the current player. */
+  nextWaitingBoard: () => void;
 }
 
 const NONE: Selection = { kind: 'none' };
@@ -61,9 +66,12 @@ function firstPending(state: GameState): BoardRef | null {
   return p.length ? latestRef(p[0]) : null;
 }
 
-export function useGame(): GameController {
-  const [history, setHistory] = useState<GameState[]>(() => [newGame()]);
-  const [focus, setFocus] = useState<BoardRef>({ timeline: 0, turn: 0 });
+export function useGame(initialHistory?: GameState[]): GameController {
+  const [history, setHistory] = useState<GameState[]>(() => (initialHistory?.length ? initialHistory : [newGame()]));
+  const [focus, setFocus] = useState<BoardRef>(() => {
+    const last = initialHistory?.[initialHistory.length - 1];
+    return (last && (last.win?.board ?? firstPending(last))) || { timeline: 0, turn: 0 };
+  });
   const [selection, setSelection] = useState<Selection>(NONE);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,8 +90,11 @@ export function useGame(): GameController {
         setSelection(NONE);
         setError(null);
         if (next.status === 'won' && next.win) {
+          feedback.win();
           setFocus(next.win.board);
         } else {
+          if (action.type === 'travel') feedback.warp();
+          else feedback.thud();
           // Prefer the board that was just created on the same timeline the
           // player was looking at; otherwise jump to whatever is waiting.
           const created = next.lastCreated.find((r) => r.timeline === focus.timeline);
@@ -92,6 +103,7 @@ export function useGame(): GameController {
           else if (created) setFocus(created);
         }
       } catch (e) {
+        feedback.nope();
         setError(e instanceof IllegalAction ? e.message : String(e));
       }
     },
@@ -136,6 +148,7 @@ export function useGame(): GameController {
         if (selection.kind !== 'none' && sameDisc(selection.from, from)) {
           setSelection(NONE);
         } else {
+          feedback.tap();
           setSelection({ kind: 'disc', from });
         }
         return;
@@ -189,8 +202,16 @@ export function useGame(): GameController {
     if (pending) setFocus(pending);
   }, [state]);
 
+  const nextWaitingBoard = useCallback(() => {
+    const pending = pendingTimelines(state);
+    if (pending.length === 0) return;
+    const at = pending.findIndex((tl) => tl.id === focus.timeline);
+    setFocus(latestRef(pending[(at + 1) % pending.length]));
+  }, [state, focus.timeline]);
+
   return {
     state,
+    history,
     focus,
     selection,
     targets,
@@ -204,6 +225,7 @@ export function useGame(): GameController {
     undo,
     restart,
     goToWaitingBoard,
+    nextWaitingBoard,
   };
 }
 

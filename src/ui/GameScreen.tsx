@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  GameState,
   MAX_SIDE,
   PLAYER_NAMES,
   Spin,
@@ -14,18 +15,42 @@ import {
   playerToMoveAt,
   timelineLabel,
 } from '../engine';
+import { setHapticsEnabled } from '../app/feedback';
+import { keys, removeKey, saveJson } from '../app/persist';
+import { useSettings } from '../app/settings';
 import { DiscBoard } from './DiscBoard';
+import { MenuModal } from './MenuModal';
 import { Button, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
+import { SettingsModal } from './SettingsModal';
 import { colors, playerColor, radius, spacing } from './theme';
 import { useGame } from './useGame';
 
-export function GameScreen() {
-  const game = useGame();
+interface Props {
+  /** A saved game to resume, oldest state first. */
+  initialHistory?: GameState[];
+}
+
+export function GameScreen({ initialHistory }: Props) {
+  const game = useGame(initialHistory);
   const { state, focus, selection, targets } = game;
   const { width, height } = useWindowDimensions();
+  const { settings } = useSettings();
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [gameOverDismissed, setGameOverDismissed] = useState(false);
+
+  useEffect(() => setHapticsEnabled(settings.haptics), [settings.haptics]);
+
+  // Save the game whenever it changes, a moment after the last change.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (game.history.length > 1) void saveJson(keys.game, { version: 1, history: game.history });
+      else void removeKey(keys.game);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [game.history]);
 
   useEffect(() => {
     if (state.status === 'playing') setGameOverDismissed(false);
@@ -118,9 +143,7 @@ export function GameScreen() {
         </View>
         <Button label="Undo" small onPress={game.undo} disabled={!game.canUndo} />
         <View style={{ width: spacing.xs }} />
-        <Button label="Rules" small onPress={() => setRulesOpen(true)} />
-        <View style={{ width: spacing.xs }} />
-        <Button label="New" small tone="danger" onPress={game.restart} />
+        <Button label="Menu" small onPress={() => setMenuOpen(true)} />
       </View>
 
       <View style={[styles.statusPill, { borderColor: state.win ? playerColor(state.win.player) : playerColor(mover) }]}>
@@ -138,6 +161,7 @@ export function GameScreen() {
             selected={selectedDisc}
             highlight={winCells}
             ghostPlayer={state.status === 'playing' && (focusIsPending || landingHere) && selection.kind !== 'disc' ? mover : null}
+            patterns={settings.patterns}
             onPressCell={game.pressCell}
           />
         </Animated.View>
@@ -162,7 +186,14 @@ export function GameScreen() {
       </View>
 
       <View style={styles.mapHeader}>
-        <Text style={styles.mapTitle}>Multiverse</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={styles.mapTitle}>Multiverse</Text>
+          {totalWaiting > 1 && state.status === 'playing' ? (
+            <View style={{ marginLeft: spacing.sm }}>
+              <Button label="Next waiting ▸" small onPress={game.nextWaitingBoard} />
+            </View>
+          ) : null}
+        </View>
         <Text style={styles.mapLegend}>
           {state.status !== 'playing' ? null : selection.kind === 'none' ? (
             <>
@@ -181,6 +212,17 @@ export function GameScreen() {
         <MultiverseMap state={state} focus={focus} targets={targets} origin={origin} onPressBoard={game.focusBoard} />
       </View>
 
+      <MenuModal
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        gameInProgress={game.canUndo && state.status === 'playing'}
+        onNewGame={game.restart}
+        items={[
+          { label: 'How to play', onPress: () => setRulesOpen(true) },
+          { label: 'Settings', onPress: () => setSettingsOpen(true) },
+        ]}
+      />
+      <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <RulesModal visible={rulesOpen} onClose={() => setRulesOpen(false)} />
       <GameOverModal
         state={state}

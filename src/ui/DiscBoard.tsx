@@ -14,11 +14,13 @@ interface Props {
   interactive: boolean;
   /** When set, columns show a faint ghost disc in this colour at the landing row. */
   ghostPlayer?: Player | null;
+  /** Draw a shape on each disc as well as its colour (colour-blind friendly). */
+  patterns?: boolean;
   onPressCell?: (row: number, col: number) => void;
 }
 
 /** The big playable board. Its width and height follow the board, which may have been spun. */
-export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, onPressCell }: Props) {
+export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, patterns, onPressCell }: Props) {
   const gap = Math.max(2, Math.round(cellSize * 0.08));
   const disc = cellSize - gap * 2;
   const rows: React.ReactNode[] = [];
@@ -48,7 +50,9 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
               isSelected && styles.selected,
               isHighlighted && styles.highlighted,
             ]}
-          />
+          >
+            {patterns && value !== null ? <Marker player={value} size={disc} /> : null}
+          </View>
         </Pressable>,
       );
     }
@@ -61,7 +65,27 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
   return <View style={[styles.board, { padding: gap }]}>{rows}</View>;
 }
 
+/** Red discs get a solid dot, Yellow discs a hollow ring. */
+function Marker({ player, size }: { player: Player; size: number }) {
+  const d = Math.round(size * 0.36);
+  return (
+    <View style={styles.markerWrap}>
+      <View
+        style={{
+          width: d,
+          height: d,
+          borderRadius: d / 2,
+          backgroundColor: player === 0 ? 'rgba(0,0,0,0.45)' : 'transparent',
+          borderWidth: player === 1 ? Math.max(2, d * 0.22) : 0,
+          borderColor: 'rgba(0,0,0,0.45)',
+        }}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  markerWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   board: {
     backgroundColor: colors.board,
     borderRadius: radius.lg,
