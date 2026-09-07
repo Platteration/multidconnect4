@@ -15,7 +15,10 @@
  *    new bottom. A board that was just spun can't be spun again, and an
  *    empty board can't be spun at all.
  *  - Optional variants: "pop out" lets you pull one of your own discs out
- *    of the bottom row as a move; "flip" turns the board upside down.
+ *    of the bottom row as a move; "flip" turns the board upside down;
+ *    "strict present" borrows the real 5D Chess rule: you only HAVE to move
+ *    on boards at the present (the earliest "now" anywhere), boards further
+ *    ahead are optional, and you end your turn yourself.
  *  - Four in a row on ANY board wins the whole game instantly.
  */
 import {
@@ -59,15 +62,18 @@ export interface Rules {
   popOut: boolean;
   /** You may turn the board upside down as your move. */
   flip: boolean;
+  /** Only boards at the present are mandatory; the turn ends explicitly. */
+  strictPresent: boolean;
 }
 
-export const DEFAULT_RULES: Rules = { popOut: false, flip: false };
+export const DEFAULT_RULES: Rules = { popOut: false, flip: false, strictPresent: false };
 
 export type Action =
   | { type: 'drop'; timeline: number; col: number }
   | { type: 'rotate'; timeline: number; spin: Spin }
   | { type: 'flip'; timeline: number }
   | { type: 'pop'; timeline: number; col: number }
+  | { type: 'endTurn' }
   | {
       type: 'travel';
       from: { timeline: number; row: number; col: number };
@@ -160,7 +166,7 @@ export function maxTurn(state: GameState): number {
 }
 
 /**
- * Timelines whose newest board is waiting for the current player to move.
+ * Timelines whose newest board the current player may move now.
  * Full boards are finished and never wait for anyone.
  */
 export function pendingTimelines(state: GameState): Timeline[] {
@@ -168,6 +174,36 @@ export function pendingTimelines(state: GameState): Timeline[] {
   return state.timelines.filter(
     (tl) => playerToMoveAt(latestTurn(tl)) === state.toMove && !isFull(latestBoard(tl)),
   );
+}
+
+/** The present: the earliest "now" among unfinished timelines. */
+export function presentTurn(state: GameState): number {
+  const turns = state.timelines.filter((tl) => !isFull(latestBoard(tl))).map(latestTurn);
+  return turns.length ? Math.min(...turns) : maxTurn(state);
+}
+
+/**
+ * Timelines the current player MUST move before the turn can end. With the
+ * strict-present rule only boards at the present count; otherwise every
+ * waiting board does.
+ */
+export function mandatoryTimelines(state: GameState): Timeline[] {
+  const pending = pendingTimelines(state);
+  if (!state.rules.strictPresent) return pending;
+  const present = presentTurn(state);
+  return pending.filter((tl) => latestTurn(tl) === present);
+}
+
+/** Timelines the current player may move this turn but need not (strict present only). */
+export function optionalTimelines(state: GameState): Timeline[] {
+  if (!state.rules.strictPresent) return [];
+  const present = presentTurn(state);
+  return pendingTimelines(state).filter((tl) => latestTurn(tl) > present);
+}
+
+/** Whether the current player may end the turn now (strict present only). */
+export function canEndTurn(state: GameState): boolean {
+  return state.status === 'playing' && state.rules.strictPresent && mandatoryTimelines(state).length === 0 && optionalTimelines(state).length > 0;
 }
 
 export function isPending(state: GameState, ref: BoardRef): boolean {
@@ -226,6 +262,10 @@ function assertPending(state: GameState, timeline: number): Timeline {
 export function applyAction(state: GameState, action: Action): GameState {
   if (state.status !== 'playing') throw new IllegalAction('the game is over');
   const me = state.toMove;
+  if (action.type === 'endTurn') {
+    if (!canEndTurn(state)) throw new IllegalAction('you still have boards at the present to play');
+    return passTurn({ ...state, lastAction: action, lastCreated: [] });
+  }
   const timelines = state.timelines.map((tl) => ({ ...tl, boards: tl.boards.slice() }));
   const created: BoardRef[] = [];
 
@@ -303,7 +343,14 @@ export function applyAction(state: GameState, action: Action): GameState {
  */
 export function resolveTurn(state: GameState): GameState {
   if (state.status !== 'playing') return state;
-  if (pendingTimelines(state).length > 0) return state;
+  if (mandatoryTimelines(state).length > 0) return state;
+  // With optional boards left, the player ends the turn explicitly.
+  if (optionalTimelines(state).length > 0) return state;
+  return passTurn(state);
+}
+
+/** Hand the turn to the other player, or declare a draw if they have nothing to play. */
+function passTurn(state: GameState): GameState {
   const flipped: GameState = {
     ...state,
     toMove: otherPlayer(state.toMove),

@@ -1,10 +1,15 @@
 import { boardFromRows, cellAt, dropDisc, emptyBoard, findLines } from '../board';
+import { chooseAction } from '../bot';
 import {
   Action,
   GameState,
   IllegalAction,
   applyAction,
+  canEndTurn,
   canRotate,
+  mandatoryTimelines,
+  optionalTimelines,
+  presentTurn,
   getBoard,
   latestTurn,
   newGame,
@@ -405,7 +410,72 @@ describe('variants', () => {
   });
 
   it('keeps the rules on the state so a saved game replays the same way', () => {
-    expect(newGame({ popOut: true }).rules).toEqual({ popOut: true, flip: false });
+    expect(newGame({ popOut: true }).rules).toEqual({ popOut: true, flip: false, strictPresent: false });
     expect(play(newGame({ flip: true }), drop(0, 3)).rules.flip).toBe(true);
+  });
+});
+
+describe('strict present rule', () => {
+  const strict = () => newGame({ strictPresent: true });
+  const dropIn = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
+
+  it('behaves like the relaxed rule while there is one timeline', () => {
+    const g = play(strict(), dropIn(0, 0), dropIn(0, 1));
+    expect(g.toMove).toBe(0);
+    expect(mandatoryTimelines(g).map((t) => t.id)).toEqual([0]);
+    expect(optionalTimelines(g)).toEqual([]);
+    expect(() => applyAction(g, { type: 'endTurn' })).toThrow(IllegalAction);
+  });
+
+  it('makes only present boards mandatory after a travel into the deep past', () => {
+    // t0 R, t1 Y, t2 R, t3 Y -> Red at t4 travels a disc back to t0.
+    let g = play(strict(), dropIn(0, 0), dropIn(0, 1), dropIn(0, 2), dropIn(0, 3));
+    g = applyAction(g, { type: 'travel', from: { timeline: 0, row: 0, col: 0 }, to: { timeline: 0, turn: 0 }, col: 6 });
+    // Red's turn ended at once: nothing of Red's was left at the present.
+    expect(g.toMove).toBe(1);
+    expect(presentTurn(g)).toBe(1);
+    expect(mandatoryTimelines(g).map((t) => t.id)).toEqual([1]);
+    // Timeline 0 sits at turn 5, also Yellow's, but it is ahead of the present: optional.
+    expect(optionalTimelines(g).map((t) => t.id)).toEqual([0]);
+    expect(canEndTurn(g)).toBe(false);
+    // Yellow plays the branch; now the mandatory board is done and the turn may end.
+    g = applyAction(g, dropIn(1, 0));
+    expect(g.toMove).toBe(1);
+    expect(canEndTurn(g)).toBe(true);
+    g = applyAction(g, { type: 'endTurn' });
+    expect(g.toMove).toBe(0);
+    expect(presentTurn(g)).toBe(2);
+    expect(mandatoryTimelines(g).map((t) => t.id)).toEqual([1]);
+    expect(optionalTimelines(g)).toEqual([]);
+  });
+
+  it('lets a player use an optional board before ending the turn', () => {
+    let g = play(strict(), dropIn(0, 0), dropIn(0, 1), dropIn(0, 2), dropIn(0, 3));
+    g = applyAction(g, { type: 'travel', from: { timeline: 0, row: 0, col: 0 }, to: { timeline: 0, turn: 0 }, col: 6 });
+    g = applyAction(g, dropIn(0, 4)); // Yellow plays the optional board first
+    expect(g.toMove).toBe(1);
+    expect(optionalTimelines(g)).toEqual([]);
+    g = applyAction(g, dropIn(1, 0)); // then the mandatory one: turn passes by itself
+    expect(g.toMove).toBe(0);
+  });
+
+  it('keeps every present board on the mover parity across random play', () => {
+    let seed = 11;
+    const rng = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    for (let game = 0; game < 4; game++) {
+      let g = strict();
+      let plies = 0;
+      while (g.status === 'playing' && plies++ < 150) {
+        const a = chooseAction(g, 3, rng)!;
+        g = applyAction(g, a);
+        if (g.status !== 'playing') break;
+        for (const tl of mandatoryTimelines(g)) expect(latestTurn(tl) % 2).toBe(g.toMove);
+        // Between finishing the present boards and ending the turn, the present has already moved on.
+        if (!canEndTurn(g)) expect(presentTurn(g) % 2).toBe(g.toMove);
+      }
+    }
   });
 });

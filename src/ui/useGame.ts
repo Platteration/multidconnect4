@@ -11,7 +11,9 @@ import {
   Spin,
   applyAction,
   otherPlayer,
+  canEndTurn,
   canRotate,
+  mandatoryTimelines,
   getTimeline,
   index,
   isPending,
@@ -74,6 +76,9 @@ export interface GameController {
   popOut: () => void;
   /** True when the held disc sits on the bottom row and pop-out is allowed. */
   canPopOut: boolean;
+  /** Strict present rule: the present boards are done and boards ahead may be left for later. */
+  canEndTurn: boolean;
+  endTurn: () => void;
   cancel: () => void;
   undo: () => void;
   restart: () => void;
@@ -85,6 +90,8 @@ export interface GameController {
 const NONE: Selection = { kind: 'none' };
 
 function firstPending(state: GameState): BoardRef | null {
+  const must = mandatoryTimelines(state);
+  if (must.length) return latestRef(must[0]);
   const p = pendingTimelines(state);
   return p.length ? latestRef(p[0]) : null;
 }
@@ -126,6 +133,7 @@ export function useGame(initialHistory?: GameState[], rules: Partial<Rules> = {}
         } else {
           if (action.type === 'travel') feedback.warp();
           else if (action.type === 'rotate' || action.type === 'flip') feedback.spin();
+          else if (action.type === 'endTurn') feedback.tap();
           else feedback.thud();
           // Prefer the board that was just created on the same timeline the
           // player was looking at; otherwise jump to whatever is waiting.
@@ -212,6 +220,11 @@ export function useGame(initialHistory?: GameState[], rules: Partial<Rules> = {}
   const popOut = useCallback(() => {
     if (selection.kind === 'none') return;
     commit({ type: 'pop', timeline: selection.from.timeline, col: selection.from.col });
+  }, [selection, commit]);
+
+  const endTurn = useCallback(() => {
+    if (selection.kind !== 'none') return;
+    commit({ type: 'endTurn' });
   }, [selection, commit]);
 
   const cancel = useCallback(() => {
@@ -313,6 +326,8 @@ export function useGame(initialHistory?: GameState[], rules: Partial<Rules> = {}
     flip,
     popOut,
     canPopOut: state.rules.popOut && selection.kind === 'disc' && selection.from.row === 0,
+    canEndTurn: selection.kind === 'none' && canEndTurn(state),
+    endTurn,
     cancel,
     undo,
     restart,

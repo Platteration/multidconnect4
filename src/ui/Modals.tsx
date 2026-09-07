@@ -81,7 +81,10 @@ export function RulesModal({ visible, onClose }: RulesProps) {
             </Rule>
             <Rule head="Variants.">
               In Settings you can turn on "pop out" (pull one of your own discs out of the bottom
-              row as a move) and "flip" (turn the board upside down). They apply to the next new game.
+              row as a move), "flip" (turn the board upside down), and "strict present", the real
+              5D Chess rule: only boards at the present, the earliest "now" anywhere, must be
+              played; boards ahead of it are optional, and you end your turn yourself. They apply
+              to the next new game.
             </Rule>
             <Rule head="Full boards are finished.">
               A board with no empty slots just sits there. If every board is full with no winner, the

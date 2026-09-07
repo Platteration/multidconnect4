@@ -53,8 +53,10 @@ defend, and rearrange the present by collapsing a column.
 - **Replay.** Step through any game move by move with a one-line narration.
 - **Play by message.** Share a game as a short code, paste it into any chat,
   and the other person loads it, moves, and sends it back. No server.
-- **Rule variants.** Pop-out (remove one of your own bottom discs) and flip
-  (turn the board upside down), off by default.
+- **Rule variants.** Pop-out (remove one of your own bottom discs), flip
+  (turn the board upside down), and strict present, the real 5D Chess rule:
+  only boards at the present must be played, boards ahead of it are
+  optional, and you end your turn yourself. All off by default.
 - **Themes and looks.** System, dark or light theme; five board skins; four
   piece sets that also rename the sides; colour-blind markings on discs.
 - **Feel.** Haptics and short synthesized sounds, both switchable. A falling

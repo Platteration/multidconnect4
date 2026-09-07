@@ -16,11 +16,14 @@ import {
   getTimeline,
   isPending,
   latestRef,
+  mandatoryTimelines,
+  optionalTimelines,
   otherPlayer,
   pendingTimelines,
   playerToMoveAt,
   timelineLabel,
 } from '../engine';
+import { useEntitlements } from '../app/entitlements';
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { keys, removeKey, saveJson } from '../app/persist';
 import { useSettings } from '../app/settings';
@@ -60,10 +63,11 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
   const { recordGame } = useStats();
+  const { entitlements } = useEntitlements();
   const [statsOpen, setStatsOpen] = useState(false);
   const rules = useMemo(
-    () => ({ popOut: !!settings.variants.popOut, flip: !!settings.variants.flip }),
-    [settings.variants.popOut, settings.variants.flip],
+    () => ({ popOut: !!settings.variants.popOut, flip: !!settings.variants.flip, strictPresent: !!settings.variants.strictPresent }),
+    [settings.variants.popOut, settings.variants.flip, settings.variants.strictPresent],
   );
   const game = useGame(initialHistory, rules, initialSetup);
   const { selection, targets } = game;
@@ -265,7 +269,9 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const timeline = getTimeline(state, focus.timeline);
   const focusIsPending = isPending(state, focus);
   const pending = pendingTimelines(state);
-  const totalWaiting = pending.length;
+  const mandatory = mandatoryTimelines(state);
+  const optionalCount = optionalTimelines(state).length;
+  const totalWaiting = mandatory.length;
   const mover = state.toMove;
 
   const origin = selection.kind === 'none' ? null : latestRef(getTimeline(state, selection.from.timeline));
@@ -282,7 +288,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         ? 'Draw - every board is full'
         : !humanTurn && bot
           ? `${BOT_NAMES[bot.level]} is thinking…`
-          : `${colors.playerNames[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting`;
+          : `${colors.playerNames[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting${optionalCount ? ` · ${optionalCount} optional` : ''}`;
   const subtitle = puzzle
     ? `Puzzle ${puzzleIndex + 1}: ${puzzle.title} · ${Math.max(0, puzzle.within - game.movesUsed)} move${puzzle.within - game.movesUsed === 1 ? '' : 's'} left`
     : bot
@@ -311,6 +317,8 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     if (game.canPopOut) hint += ' Or pop it out of the bottom row.';
   } else if (!humanTurn) {
     hint = 'The bot is taking its turn.';
+  } else if (game.canEndTurn) {
+    hint = 'Every board at the present is played. Play the boards ahead of it too, or end your turn.';
   } else if (focusIsPending) {
     hint = board.spun
       ? 'Freshly spun. Tap a column to drop a disc, or tap one of your discs to send it into the past.'
@@ -336,7 +344,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit>
-            5D Connect Four
+            5D Connect Four{entitlements.supporter ? ' ✦' : ''}
           </Text>
           <Text style={styles.subtitle} numberOfLines={1}>
             {subtitle}
@@ -409,6 +417,8 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
             ) : null}
             <Button label="Cancel" small onPress={game.cancel} />
           </View>
+        ) : game.canEndTurn && humanTurn ? (
+          <Button label="End turn" small tone="primary" onPress={game.endTurn} />
         ) : !focusIsPending && state.status === 'playing' ? (
           <Button label="Go play" small tone="primary" onPress={game.goToWaitingBoard} />
         ) : null}
@@ -503,6 +513,9 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           </Row>
           <Row label="Flip" hint="Turn the board upside down as a move, gravity included.">
             <Switch value={!!settings.variants.flip} onValueChange={(v) => setVariant('flip', v)} />
+          </Row>
+          <Row label="Strict present (5D rules)" hint="Only boards at the present must be played; boards ahead are optional and you end your turn yourself.">
+            <Switch value={!!settings.variants.strictPresent} onValueChange={(v) => setVariant('strictPresent', v)} />
           </Row>
         </Section>
       </SettingsModal>
