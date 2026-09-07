@@ -30,6 +30,8 @@ export interface Puzzle {
   player: Player;
   /** How many of the player's own actions may be used. */
   within: number;
+  /** 'win' (default): win within the budget. 'survive': still be alive after it, whatever the bot does. */
+  goal?: 'win' | 'survive';
   /** The key move(s). For multi-move puzzles, only the setup moves; the finish is any immediate win. */
   solution: Action[];
 }
@@ -46,6 +48,25 @@ function fromBoards(boards: Board[], rules: Partial<Rules> = {}): GameState {
     ...base,
     toMove,
     timelines: [{ id: 0, startTurn: 0, boards, createdBy: null, branchedFrom: null, origin: null }],
+  };
+}
+
+/** Two timelines: the root, and a branch that split off it. Both newest boards must share a parity. */
+function withBranch(root: Board[], branch: { startTurn: number; boards: Board[]; from: number }, rules: Partial<Rules> = {}): GameState {
+  const base = fromBoards(root, rules);
+  return {
+    ...base,
+    timelines: [
+      base.timelines[0],
+      {
+        id: 1,
+        startTurn: branch.startTurn,
+        boards: branch.boards,
+        createdBy: base.toMove === 0 ? 1 : 0,
+        branchedFrom: { timeline: 0, turn: branch.startTurn - 1 },
+        origin: { timeline: 0, turn: branch.from },
+      },
+    ],
   };
 }
 
@@ -137,6 +158,50 @@ export const PUZZLES: Puzzle[] = [
     solution: [drop(4)],
   },
 ];
+
+PUZZLES.push(
+  {
+    id: 'pop',
+    title: 'Pop goes the column',
+    brief: 'Red to move, with pop-out on. Take a disc out of the bottom row.',
+    hint: 'Pick up the red disc at the bottom of column 4 and pop it out. Watch what falls.',
+    player: 0,
+    within: 1,
+    state: fromBoards(
+      [E, E, boardFromRows(['.......', '.......', '.......', '...R...', 'RRRY.Y.', 'YRYR.YY'])],
+      { popOut: true },
+    ),
+    solution: [{ type: 'pop', timeline: 0, col: 3 }],
+  },
+  {
+    id: 'twoboards',
+    title: 'Two boards, one turn',
+    brief: 'Two boards are waiting for Red. Only one of them can be won right now.',
+    hint: 'Look at both boards on the map. The branch, Timeline 2, has three reds with a gap.',
+    player: 0,
+    within: 1,
+    state: withBranch(
+      [E, E, E, E, boardFromRows(['.......', '.......', '.......', '.......', '.YY....', 'RRYRY..'])],
+      {
+        startTurn: 2,
+        from: 3,
+        boards: [boardFromRows(['.......', '.......', '.......', '.......', '.......', 'RR.RYY.'])],
+      },
+    ),
+    solution: [{ type: 'drop', timeline: 1, col: 2 }],
+  },
+  {
+    id: 'defuse',
+    title: 'Defuse the fork',
+    brief: 'Yellow to move. Red threatens to win on both sides. Survive one move.',
+    hint: 'Blocking one side loses to the other. Spinning rearranges everything, but only one direction is safe.',
+    player: 1,
+    within: 1,
+    goal: 'survive',
+    state: fromBoards([E, E, E, boardFromRows(['.......', '.......', '.......', '.......', '......Y', '..RRR.Y'])]),
+    solution: [{ type: 'rotate', timeline: 0, spin: 'ccw' }],
+  },
+);
 
 export function puzzleById(id: string): Puzzle | undefined {
   return PUZZLES.find((p) => p.id === id);

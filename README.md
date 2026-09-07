@@ -46,9 +46,10 @@ defend, and rearrange the present by collapsing a column.
   Tricky (spins, never walks into a win or a fork) and Paradox (also
   travels through time, pops and flips when it pays). Undo rewinds through
   the bot's replies.
-- **Puzzles.** Six hand-made positions, each teaching one trick: a plain
+- **Puzzles.** Nine hand-made positions, each teaching one trick: a plain
   connect-four, a spin, a time travel into a missed win, a collapse, a flip,
-  and a fork against the strongest bot. Progress is saved.
+  a fork against the strongest bot, a pop-out, a two-board turn, and a
+  "survive" puzzle where you must defuse a fork. Progress is saved.
 - **Replay.** Step through any game move by move with a one-line narration.
 - **Play by message.** Share a game as a short code, paste it into any chat,
   and the other person loads it, moves, and sends it back. No server.
@@ -58,8 +59,17 @@ defend, and rearrange the present by collapsing a column.
   piece sets that also rename the sides; colour-blind markings on discs.
 - **Feel.** Haptics and short synthesized sounds, both switchable. A falling
   animation for discs and a turning animation for spins.
-- **Saved automatically.** The game in progress, settings, and puzzle
-  progress survive closing the app.
+- **Your record.** Games played, wins against each bot, time travels made,
+  biggest multiverse, longest game, and puzzles solved.
+- **A welcome on first launch** that shows the one idea that matters, with a
+  real tiny multiverse, and offers the puzzles.
+- **Links.** A game code also loads from a link: `?code=` on the web build
+  and the app's own scheme on a device.
+- **Fits the screen.** Portrait stacks the board over the map; wide screens
+  put them side by side. The map draws a line from each branch to the board
+  it split off, and a time travel flies a token across it.
+- **Saved automatically.** The game in progress, settings, record, and
+  puzzle progress survive closing the app.
 
 ## Money, and what will never be for sale
 
@@ -73,6 +83,14 @@ Until a billing library is wired in, `STORE_ENABLED` in
 go live: implement `purchase` and `restore` in that file against your store
 SDK, persist the result, and set the flag to true. The Settings sheet and the
 Extras sheet already respect the entitlement.
+
+## Building and shipping
+
+`.github/workflows/ci.yml` runs the typecheck, the tests, and a web export
+on every push. `eas.json` has development, preview, and production profiles
+for [EAS Build](https://docs.expo.dev/build/introduction/). The icons in
+`assets/` are generated, so replace them with real artwork before a store
+release.
 
 ## Running it
 
