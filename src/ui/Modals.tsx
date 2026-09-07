@@ -111,9 +111,10 @@ interface GameOverProps {
   visible: boolean;
   onRestart: () => void;
   onDismiss: () => void;
+  onReplay?: () => void;
 }
 
-export function GameOverModal({ state, visible, onRestart, onDismiss }: GameOverProps) {
+export function GameOverModal({ state, visible, onRestart, onDismiss, onReplay }: GameOverProps) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const win = state.win;
@@ -130,6 +131,12 @@ export function GameOverModal({ state, visible, onRestart, onDismiss }: GameOver
           <View style={{ height: spacing.lg }} />
           <Button label="New game" tone="primary" onPress={onRestart} />
           <View style={{ height: spacing.sm }} />
+          {onReplay ? (
+            <>
+              <Button label="Watch the replay" onPress={onReplay} />
+              <View style={{ height: spacing.sm }} />
+            </>
+          ) : null}
           <Button label="Look at the boards" onPress={onDismiss} />
         </View>
       </View>

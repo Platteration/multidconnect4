@@ -53,6 +53,8 @@ export interface GameController {
   startNew: (setup: GameSetup) => void;
   /** Load a puzzle position; the strongest bot answers for the other side. */
   startPuzzle: (puzzle: Puzzle) => void;
+  /** Replace the game with one loaded from elsewhere (a shared code). */
+  load: (history: GameState[], setup: GameSetup) => void;
   /** In puzzle mode, how many of the player's own actions have been used. */
   movesUsed: number;
   focus: BoardRef;
@@ -262,6 +264,15 @@ export function useGame(initialHistory?: GameState[], rules: Partial<Rules> = {}
     setFocus(firstPending(puzzle.state) ?? { timeline: 0, turn: 0 });
   }, []);
 
+  const load = useCallback((nextHistory: GameState[], nextSetup: GameSetup) => {
+    setError(null);
+    setSelection(NONE);
+    setSetup(nextSetup);
+    setHistory(nextHistory);
+    const last = nextHistory[nextHistory.length - 1];
+    setFocus(last.win?.board ?? firstPending(last) ?? { timeline: 0, turn: 0 });
+  }, []);
+
   const restart = useCallback(() => {
     const puzzle = setup.mode === 'puzzle' && setup.puzzleId ? puzzleById(setup.puzzleId) : undefined;
     if (puzzle) startPuzzle(puzzle);
@@ -288,6 +299,7 @@ export function useGame(initialHistory?: GameState[], rules: Partial<Rules> = {}
     play: commit,
     startNew,
     startPuzzle,
+    load,
     movesUsed,
     focus,
     selection,
