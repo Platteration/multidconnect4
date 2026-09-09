@@ -2,6 +2,23 @@
 
 Two independent reviewers read every first-party file in this repository; a third then re-read each security or bug claim against the code and tried to refute it. Only claims that survived that check are listed as findings; the ones that did not are recorded at the end so they are not re-raised.
 
+## Status — what has been fixed
+
+These findings are now fixed on `claude/repo-review-security-baiyud`, each with a regression test:
+
+- **BUG-1**
+- **SEC-1**
+- **BUG-2**
+- **BUG-3**
+- **BUG-4**
+- **VER-1**
+- **VER-2**
+- **VER-3**
+
+The rest of this document is the review as written, and the fixed items are left in place so the reasoning behind each change stays with it.
+
+Repository hardening applied here as well: every GitHub Action is pinned to a commit rather than a floating tag, each workflow declares a least-privilege `permissions` block, and a Dependabot config, a licence and a security policy are in place.
+
 ## Summary
 
 5D Connect Four is a finished, unusually complete Expo/React Native game: a pure-TypeScript multiverse engine (boards, timelines, time travel, three rule variants), a three-level bot, nine verified puzzles, replay with narration, serverless play-by-message game codes, themes/skins/piece sets, a store seam, stats and a first-launch walkthrough — 5,541 first-party lines across 65 files, 848 of them engine tests, with CI running typecheck + tests + a web export. The dependency stack is genuinely current (Expo SDK 57 is the latest stable; the 11 moderate npm-audit findings all reduce to one build-time transitive `uuid` advisory reached through `xcode` in Expo's prebuild plugins, and npm's proposed 'fix' is a catastrophic downgrade to Expo 46 that must not be applied). The headline problem is not the code, it is that this repo and /home/user/multidcheckers are the same app written twice: 27 files are byte-identical (1,245 lines), another 6 differ only by a name string or a colour token, and both `multiverse.ts` files export the same ~25-name timeline API with identical semantics — roughly 34% of the codebase is duplicated, and all 14 commits in each repo were authored in lockstep. The other high-value gaps are a live bug where opening the replay of a bot game commits bot moves into the live game (GameScreen.tsx:79/261), a cluster of contrast failures caused by using raw piece colours as text colour (down to 1.00:1 in the 'Ink & chalk' set — the sibling repo already fixed this in MultiverseMap by switching to `playerAccent`), no ESLint at all despite four `eslint-disable react-hooks/exhaustive-deps` comments, and zero tests above the engine line — `useGame.ts` (341 lines, the whole game controller) and every `src/app/` module except `share`/`base64` are untested, and the jest `testMatch` is `.ts`-only so component tests cannot even be added.
