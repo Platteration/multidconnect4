@@ -40,7 +40,7 @@ The app makes no network requests at all: there is no fetch/XHR/WebSocket anywhe
 | BUG-6 | Low | bug | `userInterfaceStyle: "dark"` locks the app dark, so the default "System" theme setting can never follow the OS | `app.json:9` | trivial | confirmed |
 | CI-1 | Low | ci-cd | CI actions are pinned to mutable tags, the workflow has no permissions block, and it runs on every push | `.github/workflows/ci.yml:11` | trivial | confirmed |
 | VER-4 | Low | reliability | MiniBoard's React.memo is defeated by a fresh onPress closure, so every thumbnail re-renders on every map render | `src/ui/MultiverseMap.tsx:163` | small | found by second reviewer |
-| VER-5 | Low | ci-cd | Four react-hooks/exhaustive-deps suppressions but no ESLint config and no lint script anywhere | `package.json:22` | small | found by second reviewer |
+| VER-5 | Low | ci-cd | Four react-hooks/exhaustive-deps suppressions but no ESLint config and no lint script anywhere | `package.json:26` | small | found by second reviewer |
 | SUP-1 | Info | supply-chain | `expo-sharing` is a declared dependency that is never imported, and it is the only direct path to the audit's advisories | `package.json:9` | trivial | confirmed, severity lowered |
 | META-1 | Info | supply-chain | No LICENSE, SECURITY.md, CODEOWNERS or Dependabot | `package.json:30` | trivial | confirmed |
 
@@ -341,14 +341,14 @@ src/ui/MiniBoard.tsx:26-43  builds `board.rows * board.cols` cell Views plus `bo
 
 ### VER-5 · Four react-hooks/exhaustive-deps suppressions but no ESLint config and no lint script anywhere
 
-**Severity:** Low · **Category:** ci-cd · **Effort:** small · **Where:** `package.json:22`
+**Severity:** Low · **Category:** ci-cd · **Effort:** small · **Where:** `package.json:26`
 
 The source carries four `// eslint-disable-next-line react-hooks/exhaustive-deps` comments, but there is no ESLint configuration file in the repository (`git ls-files` matches nothing for eslint/prettier), no `lint` script in package.json, and no lint step in CI - so the rule those comments suppress has never actually run. That matters here rather than being pure paperwork: the suppression at GameScreen.tsx:265 sits on precisely the effect whose stale/wrong dependency list is BUG-1, and the one at MultiverseMap.tsx:65 sits on the travel-animation effect that reads `state.lastCreated` while depending only on `flightKey`. A lint step is the cheapest thing that would have surfaced BUG-1 before a human did. Both repos are in the same state.
 
 Evidence:
 
 ```
-package.json:19-25  scripts = start, android, ios, web, test, typecheck — no `lint`
+package.json:26-33  scripts = start, android, ios, web, test, typecheck — no `lint`
 `git ls-files | grep -iE 'eslint|prettier'` -> no matches (in both repos)
 .github/workflows/ci.yml:16-20  npm ci / typecheck / test / expo export — no lint step
 Suppressions present anyway: src/ui/GameScreen.tsx:90, src/ui/GameScreen.tsx:265, src/ui/MultiverseMap.tsx:65, src/ui/DiscBoard.tsx:33
