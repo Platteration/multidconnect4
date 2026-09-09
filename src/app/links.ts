@@ -1,9 +1,17 @@
 /**
  * Deep links carrying a game code: `<scheme>://load?code=…` on a device,
  * `https://…/?code=…` on the web. The code itself is validated by decodeGame.
+ * Anyone can hand the app a link, so an absurdly long one is dropped here
+ * rather than decoded and replayed.
  */
+import { MAX_CODE_LENGTH } from './share';
+
 export function codeFromUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
+  const code = url ? codeIn(url) : null;
+  return code && code.length <= MAX_CODE_LENGTH ? code : null;
+}
+
+function codeIn(url: string): string | null {
   const match = /[?&#]code=([^&#]+)/.exec(url);
   if (match) {
     try {

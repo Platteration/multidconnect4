@@ -26,6 +26,7 @@ import {
 import { useEntitlements } from '../app/entitlements';
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { keys, removeKey, saveJson } from '../app/persist';
+import { toSavedGame } from '../app/savedGame';
 import { useSettings } from '../app/settings';
 import { codeFromUrl, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
@@ -35,6 +36,7 @@ import { decodeGame, encodeGame } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { DiscBoard } from './DiscBoard';
+import { botShouldMove, travelOrigin } from './guards';
 import { MenuModal } from './MenuModal';
 import { NewGameModal } from './NewGameModal';
 import { PuzzleResultModal } from './PuzzleResultModal';
@@ -72,13 +74,22 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const game = useGame(initialHistory, rules, initialSetup);
   const { selection, targets } = game;
   // Replay: look at any earlier state read-only, without touching the live game.
+  // `liveState` is the game itself; `state` is only what is on screen, which
+  // during a replay is an earlier state and must never be played from.
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const replaying = replayIndex !== null && replayIndex < game.history.length;
-  const state = replaying ? game.history[replayIndex] : game.state;
+  const liveState = game.state;
+  const state = replaying ? game.history[replayIndex] : liveState;
   const focus = replaying ? (state.lastCreated[0] ?? { timeline: 0, turn: 0 }) : game.focus;
   const humanTurn = game.humanTurn && !replaying;
   const [shareOpen, setShareOpen] = useState(false);
   const [extrasOpen, setExtrasOpen] = useState(false);
+  // Opening the replay puts an older state on screen, so a disc picked up in
+  // the live game must be put down first: its timeline may not exist there.
+  const openReplay = () => {
+    game.cancel();
+    setReplayIndex(0);
+  };
 
   // Fold each finished game (not puzzles) into the record, once.
   const recordedRef = useRef<GameState | null>(null);
@@ -172,11 +183,17 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   useEffect(() => setHapticsEnabled(settings.haptics), [settings.haptics]);
   useEffect(() => setSoundEnabled(settings.sound), [settings.sound]);
 
-  // Save the game whenever it changes, a moment after the last change.
+  // Save the game whenever it changes, a moment after the last change. Only
+  // the actions are written; the history is rebuilt by replaying them.
+  const [saveFailed, setSaveFailed] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (game.history.length > 1) void saveJson(keys.game, { version: 2, history: game.history, setup: game.setup });
-      else void removeKey(keys.game);
+      if (game.history.length > 1) {
+        void saveJson(keys.game, toSavedGame(game.history, game.setup)).then((ok) => setSaveFailed(!ok));
+      } else {
+        setSaveFailed(false);
+        void removeKey(keys.game);
+      }
     }, 250);
     return () => clearTimeout(timer);
   }, [game.history, game.setup]);
@@ -248,12 +265,15 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     setShowHint(false);
   }, [game.setup.puzzleId, game.history.length === 1]);
   useEffect(() => {
-    if (!bot || humanTurn || spinning || state.status !== 'playing') return;
+    // Only ever the live game: the action is applied to the live game, so
+    // choosing it from the state being replayed would play moves into it.
+    if (!bot || !botShouldMove({ replaying, humanTurn: game.humanTurn, spinning, status: liveState.status })) return;
     const timer = setTimeout(() => {
-      const action = chooseAction(state, bot.level);
+      const action = chooseAction(liveState, bot.level);
       if (!action) return;
       if (action.type === 'rotate') {
-        game.focusBoard({ timeline: action.timeline, turn: state.timelines[action.timeline].boards.length - 1 + state.timelines[action.timeline].startTurn });
+        const tl = liveState.timelines[action.timeline];
+        game.focusBoard({ timeline: action.timeline, turn: tl.startTurn + tl.boards.length - 1 });
         animateSpin(action.spin, () => game.play(action));
       } else if (action.type === 'flip') {
         animateSpin('flip', () => game.play(action));
@@ -263,7 +283,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     }, 600);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, bot, humanTurn, spinning]);
+  }, [liveState, bot, game.humanTurn, replaying, spinning]);
 
   const board = getBoard(state, focus) ?? state.timelines[0].boards[0];
   const timeline = getTimeline(state, focus.timeline);
@@ -274,7 +294,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const totalWaiting = mandatory.length;
   const mover = state.toMove;
 
-  const origin = selection.kind === 'none' ? null : latestRef(getTimeline(state, selection.from.timeline));
+  const origin = travelOrigin(state, selection, replaying);
   const landingHere = selection.kind === 'target' && selection.to.timeline === focus.timeline && selection.to.turn === focus.turn;
   const selectedDisc =
     selection.kind !== 'none' && selection.from.timeline === focus.timeline && focusIsPending
@@ -403,7 +423,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       ) : null}
       <View style={[styles.hintRow, replaying && { display: 'none' }]}>
         <Text style={[styles.hint, game.error ? { color: colors.danger } : null]} numberOfLines={3}>
-          {game.error ?? hint}
+          {game.error ?? (saveFailed ? 'This game is too big to save; it will be lost when the app closes.' : hint)}
         </Text>
         {puzzle && selection.kind === 'none' && humanTurn && state.status === 'playing' ? (
           <Button label={showHint ? 'Brief' : 'Hint'} small onPress={() => setShowHint((h) => !h)} />
@@ -466,7 +486,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         gameInProgress={game.canUndo && state.status === 'playing'}
         onNewGame={() => setNewGameOpen(true)}
         items={[
-          ...(game.history.length > 1 ? [{ label: 'Replay this game', onPress: () => setReplayIndex(0) }] : []),
+          ...(game.history.length > 1 ? [{ label: 'Replay this game', onPress: openReplay }] : []),
           { label: 'Play by message', onPress: () => setShareOpen(true) },
           { label: 'Puzzles', onPress: () => setPuzzlesOpen(true) },
           { label: 'How to play', onPress: () => setRulesOpen(true) },
@@ -557,7 +577,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         onDismiss={() => setGameOverDismissed(true)}
         onReplay={() => {
           setGameOverDismissed(true);
-          setReplayIndex(0);
+          openReplay();
         }}
       />
     </SafeAreaView>

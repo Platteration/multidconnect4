@@ -184,6 +184,30 @@ describe('spinning', () => {
   });
 });
 
+describe('cells outside the board', () => {
+  // Cells are stored row-major, so column `cols` is really the next row up:
+  // an unchecked read there reports a disc that is not where it was asked for,
+  // and an unchecked write lands past the end of the array.
+  it('reads as empty rather than aliasing the row above', () => {
+    const b = boardFromRows(['.......', '.......', '.......', '.......', 'R......', 'RY.....']);
+    expect(cellAt(b, 1, 0)).toBe(0);
+    expect(cellAt(b, 0, 7)).toBeNull();
+    expect(cellAt(b, 0, -1)).toBeNull();
+    expect(cellAt(b, 6, 0)).toBeNull();
+    expect(cellAt(b, 0.5, 0)).toBeNull();
+  });
+
+  it('cannot be removed, so the board keeps its size and its holes', () => {
+    const b = boardFromRows(['.......', '.......', '.......', '.......', 'R......', 'RY.....']);
+    const after = removeDisc(b, 0, 7);
+    expect(after.cells).toHaveLength(b.rows * b.cols);
+    expect(textRows(after)).toEqual(textRows(b));
+    // Every cell is still a disc or a hole gravity can fill; none is undefined.
+    expect(after.cells.every((c) => c === 0 || c === 1 || c === null)).toBe(true);
+    expect(dropRow(after, 0)).toBe(2);
+  });
+});
+
 /** Render a board as rows of text, top row first, for readable assertions. */
 function textRows(board: { cols: number; rows: number; cells: readonly (0 | 1 | null)[] }): string[] {
   const out: string[] = [];

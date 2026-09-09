@@ -45,8 +45,21 @@ export function emptyBoard(cols = COLS, rows = ROWS): Board {
   return { cols, rows, cells: Array<Cell>(rows * cols).fill(null), spun: false };
 }
 
+/** True when (row, col) names a real cell of this board. */
+export function inside(board: Dims, row: number, col: number): boolean {
+  return (
+    Number.isInteger(row) && Number.isInteger(col) && row >= 0 && row < board.rows && col >= 0 && col < board.cols
+  );
+}
+
+/**
+ * The cell at (row, col), or null when that is not a cell of this board.
+ * Row-major storage means an out-of-range column silently aliases another
+ * row, so callers must never be trusted to have checked: an action arriving
+ * in a shared game code has not.
+ */
 export function cellAt(board: Board, row: number, col: number): Cell {
-  return board.cells[index(board, row, col)];
+  return inside(board, row, col) ? board.cells[index(board, row, col)] : null;
 }
 
 /** Lowest empty row in a column, or -1 when the column is full. */
@@ -83,6 +96,9 @@ export function dropDisc(board: Board, col: number, player: Player): { board: Bo
  * board rearranges itself.
  */
 export function removeDisc(board: Board, row: number, col: number): Board {
+  // Out of range would write past the end of the array and leave a hole that
+  // gravity can never fill again; there is nothing to remove, so do nothing.
+  if (!inside(board, row, col)) return board;
   const cells = board.cells.slice();
   for (let r = row; r < board.rows - 1; r++) {
     cells[index(board, r, col)] = cells[index(board, r + 1, col)];

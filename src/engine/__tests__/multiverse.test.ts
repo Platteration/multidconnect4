@@ -4,6 +4,7 @@ import {
   Action,
   GameState,
   IllegalAction,
+  allBoards,
   applyAction,
   canEndTurn,
   canRotate,
@@ -477,5 +478,100 @@ describe('strict present rule', () => {
         if (!canEndTurn(g)) expect(presentTurn(g) % 2).toBe(g.toMove);
       }
     }
+  });
+});
+
+describe('actions pointing outside a board', () => {
+  // A game code carries raw actions, so row/column indices are untrusted.
+  // Row-major storage means column `cols` aliases the next row up, which once
+  // let a pop take a disc that was not on the bottom row and let the removal
+  // write past the end of the cells array.
+  const popGame = (): GameState =>
+    play(newGame({ popOut: true }), drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1));
+
+  it('rejects a pop outside the board instead of taking a disc from the row above', () => {
+    const g = popGame();
+    expect(g.toMove).toBe(0);
+    const board = getBoard(g, { timeline: 0, turn: 4 })!;
+    // The cell an unchecked read would have aliased: row 1, column 0 is Red's.
+    expect(cellAt(board, 1, 0)).toBe(0);
+    expect(() => applyAction(g, { type: 'pop', timeline: 0, col: 7 })).toThrow(IllegalAction);
+    expect(() => applyAction(g, { type: 'pop', timeline: 0, col: -1 })).toThrow(IllegalAction);
+    // A legal pop still works, so the guard has not closed the rule down.
+    const popped = applyAction(g, { type: 'pop', timeline: 0, col: 0 });
+    expect(getBoard(popped, { timeline: 0, turn: 5 })!.cells).toHaveLength(board.cells.length);
+  });
+
+  it('rejects a time travel from a cell outside the board', () => {
+    const g = play(newGame(), drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1));
+    for (const from of [
+      { timeline: 0, row: 0, col: 7 },
+      { timeline: 0, row: 6, col: 0 },
+      { timeline: 0, row: -1, col: 0 },
+    ]) {
+      expect(() =>
+        applyAction(g, { type: 'travel', from, to: { timeline: 0, turn: 0 }, col: 3 }),
+      ).toThrow(IllegalAction);
+    }
+    // The real disc at (0, 0) still travels.
+    const travelled = applyAction(g, {
+      type: 'travel',
+      from: { timeline: 0, row: 0, col: 0 },
+      to: { timeline: 0, turn: 0 },
+      col: 3,
+    });
+    for (const { board } of allBoards(travelled)) {
+      expect(board.cells).toHaveLength(board.rows * board.cols);
+      expect(board.cells.every((c) => c === 0 || c === 1 || c === null)).toBe(true);
+    }
+  });
+});
+
+describe('a travel that wins on the new timeline', () => {
+  it('beats a line the collapse hands the opponent', () => {
+    // Column 0 from the bottom: Y R Y Y Y - pulling the Red disc out drops the
+    // yellows into a vertical four. The disc lands completing R R R R on the
+    // past board, so the mover's line must win, on whichever board it is.
+    const g: GameState = {
+      ...newGame(),
+      timelines: [
+        {
+          id: 0,
+          startTurn: 0,
+          boards: [
+            boardFromRows(['.......', '.......', '.......', '.......', '.......', 'RRR....']),
+            emptyBoard(),
+            boardFromRows([
+              '.......',
+              'Y......',
+              'Y......',
+              'Y......',
+              'R......',
+              'YR.....',
+            ]),
+          ],
+          createdBy: null,
+          branchedFrom: null,
+          origin: null,
+        },
+      ],
+      toMove: 0,
+    };
+    const after = applyAction(g, {
+      type: 'travel',
+      from: { timeline: 0, row: 1, col: 0 },
+      to: { timeline: 0, turn: 0 },
+      col: 3,
+    });
+    // Both boards the action created hold a four in a row.
+    expect(after.lastCreated).toEqual([
+      { timeline: 0, turn: 3 },
+      { timeline: 1, turn: 1 },
+    ]);
+    expect(findLines(getBoard(after, { timeline: 0, turn: 3 })!).map((l) => l.player)).toEqual([1]);
+    expect(findLines(getBoard(after, { timeline: 1, turn: 1 })!).map((l) => l.player)).toEqual([0]);
+    expect(after.status).toBe('won');
+    expect(after.win!.player).toBe(0);
+    expect(after.win!.board).toEqual({ timeline: 1, turn: 1 });
   });
 });

@@ -16,11 +16,15 @@ export async function loadJson<T>(key: string): Promise<T | null> {
   }
 }
 
-export async function saveJson(key: string, value: unknown): Promise<void> {
+/** Returns false when the value could not be written, e.g. it is too big. */
+export async function saveJson(key: string, value: unknown): Promise<boolean> {
   try {
     await AsyncStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // Ignore: persistence is a convenience, never a requirement.
+    // Persistence is a convenience, never a requirement - but the caller is
+    // told, so a game that cannot be saved does not disappear in silence.
+    return false;
   }
 }
 

@@ -23,11 +23,13 @@
  */
 import {
   Board,
+  Line,
   Spin,
   cellAt,
   dropDisc,
   emptyBoard,
   flip,
+  inside,
   isFull,
   removeDisc,
   rotate,
@@ -287,13 +289,18 @@ export function applyAction(state: GameState, action: Action): GameState {
     if (!state.rules.popOut) throw new IllegalAction('pop out is not enabled in this game');
     const tl = assertPending(state, action.timeline);
     const board = latestBoard(tl);
-    if (cellAt(board, 0, action.col) !== me) throw new IllegalAction('you can only pop out your own disc from the bottom row');
+    if (!inside(board, 0, action.col) || cellAt(board, 0, action.col) !== me) {
+      throw new IllegalAction('you can only pop out your own disc from the bottom row');
+    }
     timelines[tl.id].boards.push(removeDisc(board, 0, action.col));
     created.push(latestRef(timelines[tl.id]));
   } else {
     const from = assertPending(state, action.from.timeline);
     const originBoard = latestBoard(from);
-    if (cellAt(originBoard, action.from.row, action.from.col) !== me) {
+    if (
+      !inside(originBoard, action.from.row, action.from.col) ||
+      cellAt(originBoard, action.from.row, action.from.col) !== me
+    ) {
       throw new IllegalAction('you can only send your own discs back in time');
     }
     if (!isTravelTarget(state, from.id, action.to)) {
@@ -326,12 +333,20 @@ export function applyAction(state: GameState, action: Action): GameState {
   };
 
   // Four in a row on any board that just changed ends the game. The mover's
-  // lines take priority over any line the opponent gets from a collapse.
-  for (const ref of created) {
-    const line = winnerOf(getBoard(next, ref)!, me);
-    if (line) {
-      return { ...next, status: 'won', win: { player: line.player, board: ref, cells: line.cells } };
-    }
+  // line wins ties across ALL the boards this action created, not just within
+  // one of them: a travel creates the collapsed origin board first and the
+  // board the disc landed on second, and a line the collapse handed the
+  // opponent must not beat the line the traveller just made.
+  const outcomes = created
+    .map((ref) => ({ ref, line: winnerOf(getBoard(next, ref)!, me) }))
+    .filter((o): o is { ref: BoardRef; line: Line } => o.line !== null);
+  const decisive = outcomes.find((o) => o.line.player === me) ?? outcomes[0];
+  if (decisive) {
+    return {
+      ...next,
+      status: 'won',
+      win: { player: decisive.line.player, board: decisive.ref, cells: decisive.line.cells },
+    };
   }
 
   return resolveTurn(next);
