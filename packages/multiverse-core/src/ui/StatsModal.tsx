@@ -1,21 +1,23 @@
 import React, { useMemo } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
-import { useProgress } from '@5d/core/app';
-import { useStats } from '../app/stats';
-import { BOT_NAMES, BotLevel } from '../engine';
-import { PUZZLES } from '../puzzles';
-import { Button } from './Modals';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { useProgress } from '../app/progress';
+import { BOT_NAMES, type BotLevel } from '../bot';
+import type { Stats } from '../stats';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  stats: Stats;
+  /** How many puzzles this game ships, for the "solved" line. */
+  puzzleCount: number;
 }
 
-export function StatsModal({ visible, onClose }: Props) {
+export function StatsModal({ visible, onClose, stats, puzzleCount }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { stats } = useStats();
   const { solved } = useProgress();
   const row = (label: string, value: string) => (
     <View style={styles.row} key={label}>
@@ -38,7 +40,7 @@ export function StatsModal({ visible, onClose }: Props) {
           {row('Time travels made', `${stats.travels}`)}
           {row('Biggest multiverse', `${stats.mostTimelines} timeline${stats.mostTimelines === 1 ? '' : 's'}`)}
           {row('Longest game', `${stats.longestGame} move${stats.longestGame === 1 ? '' : 's'}`)}
-          {row('Puzzles solved', `${solved.size} of ${PUZZLES.length}`)}
+          {row('Puzzles solved', `${solved.size} of ${puzzleCount}`)}
           <View style={{ height: spacing.lg }} />
           <Button label="Close" onPress={onClose} />
         </View>
@@ -47,7 +49,7 @@ export function StatsModal({ visible, onClose }: Props) {
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
     sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

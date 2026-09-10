@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
-import { Button } from './Modals';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   visible: boolean;
@@ -44,7 +45,7 @@ export function PuzzleResultModal({ visible, solved, survived, title, hasNext, o
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
     sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import { GameSetup } from '../app/setup';
 import { BOT_NAMES, BotLevel, Player } from '../engine';
-import { Button } from './Modals';
+import { Button } from '@5d/core/ui';
 import { Choice } from './SettingsModal';
 import { radius, spacing, Theme, useTheme } from './theme';
 

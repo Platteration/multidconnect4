@@ -1,25 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { EMPTY_STATS, type Stats } from '@5d/core';
 import type { GameState, Player } from '../engine';
 import { loadJson, saveJson } from '@5d/core/app';
 import type { GameSetup } from './setup';
 
 const KEY = 'stats.v1';
 
-export interface Record_ {
-  played: number;
-  won: number;
-}
-
-export interface Stats {
-  games: number;
-  /** Keyed by 'local', 'bot1', 'bot2', 'bot3'. */
-  records: Record<string, Record_>;
-  travels: number;
-  mostTimelines: number;
-  longestGame: number;
-}
-
-export const EMPTY_STATS: Stats = { games: 0, records: {}, travels: 0, mostTimelines: 1, longestGame: 0 };
 
 interface StatsApi {
   stats: Stats;

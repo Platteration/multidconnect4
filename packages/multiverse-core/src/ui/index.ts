@@ -4,3 +4,11 @@
  */
 export * from './theme';
 export * from './ThemeProvider';
+export * from './Button';
+export * from './MenuModal';
+export * from './ReplayBar';
+export * from './PuzzleResultModal';
+export * from './PuzzlesModal';
+export * from './StatsModal';
+export * from './ExtrasModal';
+export * from './WelcomeModal';

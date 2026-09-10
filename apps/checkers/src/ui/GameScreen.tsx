@@ -30,20 +30,14 @@ import { decodeGame, encodeGame } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { CheckerBoard, Destination } from './CheckerBoard';
-import { MenuModal } from './MenuModal';
+import { Button, ExtrasModal, MenuModal, PuzzleResultModal, PuzzlesModal, ReplayBar, StatsModal, WelcomeModal } from '@5d/core/ui';
 import { NewGameModal } from './NewGameModal';
-import { PuzzleResultModal } from './PuzzleResultModal';
-import { ExtrasModal } from './ExtrasModal';
-import { PuzzlesModal } from './PuzzlesModal';
-import { ReplayBar } from './ReplayBar';
-import { StatsModal } from './StatsModal';
-import { WelcomeModal } from './WelcomeModal';
 import { MiniBoard } from './MiniBoard';
 import { ShareModal } from './ShareModal';
-import { Button, GameOverModal, RulesModal } from './Modals';
+import { GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { Row, Section, SettingsModal } from './SettingsModal';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { PIECE_SETS, radius, SKINS, spacing, Theme, useTheme } from './theme';
 import { useGame } from './useGame';
 
 interface Props {
@@ -56,7 +50,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
-  const { recordGame } = useStats();
+  const { recordGame, stats } = useStats();
   const { entitlements } = useEntitlements();
   const [statsOpen, setStatsOpen] = useState(false);
   const rules = useMemo(
@@ -421,8 +415,13 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           game.startNew(setup);
         }}
       />
-      <ExtrasModal visible={extrasOpen} onClose={() => setExtrasOpen(false)} />
-      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} />
+      <ExtrasModal
+        visible={extrasOpen}
+        onClose={() => setExtrasOpen(false)}
+        premiumSkins={SKINS.filter((s) => s.premium).map((s) => s.name)}
+        premiumPieces={PIECE_SETS.filter((p) => p.premium).map((p) => p.name)}
+      />
+      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} stats={stats} puzzleCount={PUZZLES.length} />
       <WelcomeModal
         visible={!settings.welcomed}
         pages={welcomePages}
@@ -459,6 +458,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       <RulesModal visible={rulesOpen} onClose={() => setRulesOpen(false)} />
       <PuzzlesModal
         visible={puzzlesOpen}
+        puzzles={PUZZLES}
         onClose={() => setPuzzlesOpen(false)}
         onPick={(p) => {
           setPuzzlesOpen(false);

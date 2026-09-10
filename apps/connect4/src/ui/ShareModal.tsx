@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import React, { useMemo, useState } from 'react';
 import { Modal, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Button } from './Modals';
+import { Button } from '@5d/core/ui';
 import { radius, spacing, Theme, useTheme } from './theme';
 
 interface Props {

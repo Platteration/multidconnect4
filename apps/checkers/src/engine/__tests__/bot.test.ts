@@ -1,5 +1,6 @@
 import { boardFromRows, index, initialBoard } from '../board';
-import { BotLevel, chooseAction, enumerateActions, playTurn } from '../bot';
+import { chooseAction, enumerateActions, playTurn } from '../bot';
+import type { BotLevel } from '../index';
 import { Action, GameState, applyAction, newGame, pendingTimelines } from '../multiverse';
 
 const seeded = (seed = 1) => () => {

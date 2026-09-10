@@ -1,18 +1,26 @@
 import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useProgress } from '@5d/core/app';
-import { PUZZLES, Puzzle } from '../puzzles';
-import { Button } from './Modals';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { useProgress } from '../app/progress';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
-interface Props {
+/** All the list needs to know about a puzzle; games carry richer ones. */
+export interface PuzzleListItem {
+  id: string;
+  title: string;
+  brief: string;
+}
+
+interface Props<P extends PuzzleListItem> {
   visible: boolean;
-  onPick: (puzzle: Puzzle) => void;
+  puzzles: readonly P[];
+  onPick: (puzzle: P) => void;
   onClose: () => void;
 }
 
 /** The list of puzzles, with a tick beside the ones already solved. */
-export function PuzzlesModal({ visible, onPick, onClose }: Props) {
+export function PuzzlesModal<P extends PuzzleListItem>({ visible, puzzles, onPick, onClose }: Props<P>) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { solved } = useProgress();
@@ -22,10 +30,10 @@ export function PuzzlesModal({ visible, onPick, onClose }: Props) {
         <View style={styles.sheet}>
           <Text style={styles.title}>Puzzles</Text>
           <Text style={styles.sub}>
-            {solved.size} of {PUZZLES.length} solved. Each one teaches a trick.
+            {solved.size} of {puzzles.length} solved. Each one teaches a trick.
           </Text>
           <ScrollView style={{ maxHeight: 440 }}>
-            {PUZZLES.map((p, i) => (
+            {puzzles.map((p, i) => (
               <Pressable
                 key={p.id}
                 onPress={() => onPick(p)}
@@ -51,7 +59,7 @@ export function PuzzlesModal({ visible, onPick, onClose }: Props) {
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
     sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

@@ -19,19 +19,8 @@ import {
   pendingTimelines,
   travelTargets,
 } from './multiverse';
-import { Player, otherPlayer } from './types';
+import { Bot, BotLevel, Player, Rng, otherPlayer } from './types';
 
-export type BotLevel = 1 | 2 | 3;
-
-export const BOT_NAMES: Record<BotLevel, string> = { 1: 'Novice', 2: 'Tricky', 3: 'Paradox' };
-
-export interface Bot {
-  level: BotLevel;
-  player: Player;
-}
-
-/** A random source in [0, 1), injectable so tests are deterministic. */
-export type Rng = () => number;
 
 /** Every legal action for the player to move, across all waiting boards. */
 export function enumerateActions(state: GameState, level: BotLevel): Action[] {

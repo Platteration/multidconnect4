@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button } from './Modals';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   index: number;
@@ -37,7 +38,7 @@ export function ReplayBar({ index, count, narration, onSeek, onLive }: Props) {
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     bar: {
       marginHorizontal: spacing.sm,

@@ -1,22 +1,25 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useEntitlements } from '@5d/core/app';
-import { Button } from './Modals';
-import { PIECE_SETS, radius, SKINS, spacing, Theme, useTheme } from './theme';
+import { useEntitlements } from '../app/entitlements';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** Names of the board skins the pack unlocks, in this game. */
+  premiumSkins: readonly string[];
+  /** Names of the piece sets the pack unlocks, in this game. */
+  premiumPieces: readonly string[];
 }
 
 /** The Supporter pack: cosmetics and a thank-you, never anything that changes the game. */
-export function ExtrasModal({ visible, onClose }: Props) {
+export function ExtrasModal({ visible, onClose, premiumSkins, premiumPieces }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { entitlements, storeEnabled, buySupporter, restorePurchases } = useEntitlements();
   const [note, setNote] = useState<string | null>(null);
-  const premiumSkins = SKINS.filter((s) => s.premium).map((s) => s.name);
-  const premiumPieces = PIECE_SETS.filter((p) => p.premium).map((p) => p.name);
 
   const buy = async () => {
     const result = await buySupporter();
@@ -71,7 +74,7 @@ export function ExtrasModal({ visible, onClose }: Props) {
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
     sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

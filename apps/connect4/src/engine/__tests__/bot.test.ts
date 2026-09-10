@@ -1,5 +1,6 @@
 import { boardFromRows, emptyBoard } from '../board';
-import { BotLevel, chooseAction, enumerateActions, playTurn } from '../bot';
+import { chooseAction, enumerateActions, playTurn } from '../bot';
+import type { BotLevel } from '../index';
 import { Action, GameState, applyAction, newGame, pendingTimelines } from '../multiverse';
 
 const drop = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
