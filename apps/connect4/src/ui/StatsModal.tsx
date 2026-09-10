@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
-import { useProgress } from '../app/progress';
+import { useProgress } from '@5d/core/app';
 import { useStats } from '../app/stats';
 import { useTheme } from '../app/theme';
 import { BOT_NAMES, BotLevel } from '../engine';

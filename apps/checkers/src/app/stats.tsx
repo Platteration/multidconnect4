@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { GameState, Player } from '../engine';
-import { loadJson, saveJson } from './persist';
+import { loadJson, saveJson } from '@5d/core/app';
 import type { GameSetup } from './setup';
 
 const KEY = 'stats.v1';

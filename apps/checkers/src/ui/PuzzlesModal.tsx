@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useProgress } from '../app/progress';
+import { useProgress } from '@5d/core/app';
 import { useTheme } from '../app/theme';
 import { PUZZLES, Puzzle } from '../puzzles';
 import { Button } from './Modals';

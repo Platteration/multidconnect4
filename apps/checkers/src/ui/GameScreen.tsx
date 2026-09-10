@@ -23,14 +23,9 @@ import {
   sameRef,
   timelineLabel,
 } from '../engine';
-import { useEntitlements } from '../app/entitlements';
-import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
-import { keys, removeKey, saveJson } from '../app/persist';
-import { useSettings } from '../app/settings';
-import { codeFromUrl, webLinkFor } from '../app/links';
+import { codeFromUrl, keys, removeKey, saveJson, setHapticsEnabled, setSoundEnabled, useEntitlements, useProgress, useSettings, webLinkFor } from '@5d/core/app';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
-import { useProgress } from '../app/progress';
 import { decodeGame, encodeGame } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';

@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { useEntitlements } from '../app/entitlements';
-import { ThemeChoice, useSettings } from '../app/settings';
+import { ThemeChoice, useEntitlements, useSettings } from '@5d/core/app';
 import { Button } from './Modals';
 import { PIECE_SETS, SKINS, Theme, radius, spacing } from './theme';
 import { useTheme } from '../app/theme';

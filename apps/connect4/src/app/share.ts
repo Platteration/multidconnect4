@@ -4,7 +4,7 @@
  * engine, so a tampered code simply fails to load.
  */
 import { Action, GameState, Rules, applyAction, newGame } from '../engine';
-import { decode, encode } from './base64';
+import { decode, encode } from '@5d/core';
 import { DEFAULT_SETUP, GameSetup } from './setup';
 
 const PREFIX = '5DC4.';

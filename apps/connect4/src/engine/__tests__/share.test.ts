@@ -1,4 +1,4 @@
-import { decode, encode } from '../../app/base64';
+import { decode, encode } from '@5d/core';
 import { decodeGame, encodeGame } from '../../app/share';
 import { Action, applyAction, newGame } from '../index';
 

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useColorScheme } from 'react-native';
 import { DEFAULT_THEME, Theme, buildTheme } from '../ui/theme';
-import { useSettings } from './settings';
+import { useSettings } from '@5d/core/app';
 
 const Ctx = createContext<Theme>(DEFAULT_THEME);
 
