@@ -1,5 +1,5 @@
 import { Action, GameState, applyAction, newGame } from '../../engine';
-import { botShouldMove, cellLabel, travelOrigin } from '../guards';
+import { botShouldMove, cellLabel, linkNeedsConfirming, travelOrigin } from '../guards';
 import type { Selection } from '../useGame';
 
 const drop = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
@@ -70,6 +70,26 @@ describe('the origin of a picked-up disc', () => {
     expect(src).toMatch(/const origin = travelOrigin\(state, selection, replaying\)/);
     expect(src).toMatch(/const openReplay = \(\) => \{\s*game\.cancel\(\);\s*setReplayIndex\(0\);/);
     expect(src).not.toMatch(/onPress: \(\) => setReplayIndex\(0\)/);
+  });
+});
+
+describe('a game arriving by link', () => {
+  it('is offered, not taken, while a game is in progress', () => {
+    // The scheme is registered with no host and no path, so any app, QR code
+    // or web page can hand the app a code; it used to load at once and the
+    // autosave then wrote the replacement over the real game.
+    expect(linkNeedsConfirming(1)).toBe(false);
+    expect(linkNeedsConfirming(2)).toBe(true);
+    expect(linkNeedsConfirming(40)).toBe(true);
+  });
+
+  it('is what the screen actually does with a link', () => {
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/if \(linkNeedsConfirming\(game\.history\.length\)\) setLinkedCode\(code\);/);
+    // Both the cold-start URL and every later one go through the offer, and
+    // nothing loads a link's code without passing through it.
+    expect(src.match(/if \(code\) offerCodeRef\.current\(code\);/g)).toHaveLength(2);
+    expect(src).not.toMatch(/loadCodeRef/);
   });
 });
 

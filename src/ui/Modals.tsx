@@ -147,6 +147,36 @@ export function GameOverModal({ state, visible, onRestart, onDismiss, onReplay }
   );
 }
 
+interface ConfirmProps {
+  visible: boolean;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+/** A yes/no sheet for anything that would throw the game in progress away. */
+export function ConfirmModal({ visible, title, body, confirmLabel, cancelLabel, onConfirm, onCancel }: ConfirmProps) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onCancel}>
+      <View style={styles.backdrop}>
+        <View style={styles.sheet}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.ruleBody}>{body}</Text>
+          <View style={{ height: spacing.md }} />
+          <Button label={confirmLabel} tone="danger" onPress={onConfirm} />
+          <View style={{ height: spacing.sm }} />
+          <Button label={cancelLabel} onPress={onCancel} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const makeStyles = (colors: Theme) =>
   StyleSheet.create({
   button: {

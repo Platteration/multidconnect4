@@ -8,7 +8,7 @@
  *  2 "Tricky"  - drops and spins, always blocks, values threats and the centre.
  *  3 "Paradox" - the above plus time travel, pop-out and flip when they pay.
  */
-import { Board, discsOf, findLines, index, isFull, legalColumns } from './board';
+import { Board, discsOf, dropDisc, findLines, index, isFull, legalColumns, rotate, winnerOf } from './board';
 import {
   Action,
   GameState,
@@ -63,8 +63,33 @@ export function enumerateActions(state: GameState, level: BotLevel): Action[] {
   return out;
 }
 
-/** Number of empty cells that would complete four in a row for `player`, plus a small centre bonus. */
-export function boardScore(board: Board, player: Player): number {
+/**
+ * Anything computed from a board stays true for as long as that board exists,
+ * because boards are immutable. Scoring one candidate action re-reads every
+ * board in the multiverse and only one or two of them changed, so without a
+ * cache the work grows with the number of candidates times the number of
+ * boards - which is what made a long branching game unplayable. The cache is
+ * weak, so an entry dies with the board it describes, and it is keyed by
+ * player as well: the same board is worth different things to the two sides.
+ */
+function perBoard(compute: (board: Board, player: Player) => number): (board: Board, player: Player) => number {
+  const cache = new WeakMap<Board, [number | undefined, number | undefined]>();
+  return (board, player) => {
+    let entry = cache.get(board);
+    if (!entry) {
+      entry = [undefined, undefined];
+      cache.set(board, entry);
+    }
+    const cached = entry[player];
+    if (cached !== undefined) return cached;
+    const value = compute(board, player);
+    entry[player] = value;
+    return value;
+  };
+}
+
+/** The uncached scoring pass; everything calls the cached `boardScore` below. */
+function computeBoardScore(board: Board, player: Player): number {
   let score = 0;
   const dirs: ReadonlyArray<readonly [number, number]> = [[0, 1], [1, 0], [1, 1], [1, -1]];
   const centre = (board.cols - 1) / 2;
@@ -99,6 +124,9 @@ export function boardScore(board: Board, player: Player): number {
   return score;
 }
 
+/** Number of empty cells that would complete four in a row for `player`, plus a small centre bonus. */
+export const boardScore: (board: Board, player: Player) => number = perBoard(computeBoardScore);
+
 /** How good the multiverse looks for `player`: sum over every newest board. */
 export function evaluate(state: GameState, player: Player): number {
   if (state.status === 'won' && state.win) return state.win.player === player ? 1e6 : -1e6;
@@ -113,21 +141,35 @@ export function evaluate(state: GameState, player: Player): number {
   return total;
 }
 
-function opponentCanWinAtOnce(state: GameState): boolean {
-  if (state.status !== 'playing') return false;
-  for (const tl of pendingTimelines(state)) {
-    for (const col of legalColumns(latestBoard(tl))) {
-      const next = applyAction(state, { type: 'drop', timeline: tl.id, col });
-      if (next.status === 'won' && next.win?.player === state.toMove) return true;
-    }
-    if (canRotate(state, tl.id)) {
-      for (const spin of ['cw', 'ccw'] as const) {
-        const next = applyAction(state, { type: 'rotate', timeline: tl.id, spin });
-        if (next.status === 'won' && next.win?.player === state.toMove) return true;
-      }
+const winOnBoard = perBoard((board: Board, player: Player) => {
+  for (const col of legalColumns(board)) {
+    const dropped = dropDisc(board, col, player);
+    if (dropped && winnerOf(dropped.board, player)?.player === player) return 1;
+  }
+  // The same conditions `canRotate` applies to a board that is already waiting.
+  if (!board.spun && board.cells.some((c) => c !== null)) {
+    for (const spin of ['cw', 'ccw'] as const) {
+      if (winnerOf(rotate(board, spin), player)?.player === player) return 1;
     }
   }
-  return false;
+  return 0;
+});
+
+/**
+ * Whether `player` could win at once on this one board, by dropping a disc or
+ * by spinning it. Deliberately asked of the board rather than by applying the
+ * action to the whole game: the answer depends on nothing else, and asking the
+ * multiverse copied every timeline once per column of every waiting board, for
+ * every candidate the bot scored. This must keep answering exactly what
+ * `applyAction` would; a test pins the two together.
+ */
+export function canWinOnBoard(board: Board, player: Player): boolean {
+  return winOnBoard(board, player) === 1;
+}
+
+function opponentCanWinAtOnce(state: GameState): boolean {
+  if (state.status !== 'playing') return false;
+  return pendingTimelines(state).some((tl) => canWinOnBoard(latestBoard(tl), state.toMove));
 }
 
 /** Columns where `player` would win at once by dropping, on one board. */
@@ -142,22 +184,25 @@ function winningColumns(board: Board, player: Player): number[] {
   return out;
 }
 
-/**
- * Whether the opponent, moving next, can drop a disc that leaves them with
- * two ways to win at once (a fork) on the same board.
- */
-function opponentCanFork(state: GameState): boolean {
-  const them = state.toMove;
-  for (const tl of pendingTimelines(state)) {
-    const board = latestBoard(tl);
-    for (const col of legalColumns(board)) {
-      const row = firstEmptyRow(board, col);
-      const cells = board.cells.slice();
-      cells[index(board, row, col)] = them;
-      if (winningColumns({ ...board, cells }, them).length >= 2) return true;
-    }
+const forkOnBoard = perBoard((board: Board, player: Player) => {
+  for (const col of legalColumns(board)) {
+    const dropped = dropDisc(board, col, player);
+    if (dropped && winningColumns(dropped.board, player).length >= 2) return 1;
   }
-  return false;
+  return 0;
+});
+
+/**
+ * Whether `player`, moving next, can drop a disc on this board that leaves
+ * them with two ways to win at once (a fork). Cached per board for the same
+ * reason as `canWinOnBoard`.
+ */
+export function canForkOnBoard(board: Board, player: Player): boolean {
+  return forkOnBoard(board, player) === 1;
+}
+
+function opponentCanFork(state: GameState): boolean {
+  return pendingTimelines(state).some((tl) => canForkOnBoard(latestBoard(tl), state.toMove));
 }
 
 /** Whether the board still has a line for `player` after this drop would be a block. */

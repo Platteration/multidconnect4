@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   BoardRef,
@@ -43,6 +43,14 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
   const horizontal = useRef<ScrollView>(null);
   const vertical = useRef<ScrollView>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+
+  // One press callback for every thumbnail, for the life of the map. The map
+  // re-renders on every focus, selection, animation and layout change; handing
+  // each MiniBoard a fresh closure defeated its React.memo and rebuilt every
+  // cell view of every board that has ever existed on each of those renders.
+  const latestPress = useRef(onPressBoard);
+  latestPress.current = onPressBoard;
+  const press = useCallback((ref: BoardRef) => latestPress.current(ref), []);
 
   // A time travel: fly a token from the board the piece left to the board it created.
   const flight = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -160,7 +168,9 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
                       ring={ring}
                       badge={badge}
                       dim={dim}
-                      onPress={() => onPressBoard(ref)}
+                      timeline={tl.id}
+                      turn={turn}
+                      onPress={press}
                       accessibilityLabel={`${timelineLabel(tl.id)} turn ${turn}, ${colors.playerNames[playerToMoveAt(turn)]} to move${isPending ? ', waiting' : ''}${isTarget ? ', travel target' : ''}`}
                     />
                   </View>

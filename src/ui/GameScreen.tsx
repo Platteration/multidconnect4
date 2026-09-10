@@ -36,7 +36,7 @@ import { decodeGame, encodeGame } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { DiscBoard } from './DiscBoard';
-import { botShouldMove, travelOrigin } from './guards';
+import { botShouldMove, linkNeedsConfirming, travelOrigin } from './guards';
 import { MenuModal } from './MenuModal';
 import { NewGameModal } from './NewGameModal';
 import { PuzzleResultModal } from './PuzzleResultModal';
@@ -47,7 +47,7 @@ import { StatsModal } from './StatsModal';
 import { WelcomeModal } from './WelcomeModal';
 import { MiniBoard } from './MiniBoard';
 import { ShareModal } from './ShareModal';
-import { Button, GameOverModal, RulesModal } from './Modals';
+import { Button, ConfirmModal, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { Row, Section, SettingsModal } from './SettingsModal';
 import { Theme, radius, spacing } from './theme';
@@ -112,18 +112,26 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       return e instanceof Error ? e.message : String(e);
     }
   };
-  const loadCodeRef = useRef(loadCode);
-  loadCodeRef.current = loadCode;
+  // A link is offered, not obeyed: it can come from any other app, any QR
+  // code or any web page, and loading it would throw away the game the two
+  // players are in the middle of.
+  const [linkedCode, setLinkedCode] = useState<string | null>(null);
+  const offerCode = (code: string) => {
+    if (linkNeedsConfirming(game.history.length)) setLinkedCode(code);
+    else loadCode(code);
+  };
+  const offerCodeRef = useRef(offerCode);
+  offerCodeRef.current = offerCode;
   useEffect(() => {
     Linking.getInitialURL()
       .then((url) => {
         const code = codeFromUrl(url);
-        if (code) loadCodeRef.current(code);
+        if (code) offerCodeRef.current(code);
       })
       .catch(() => {});
     const sub = Linking.addEventListener('url', ({ url }) => {
       const code = codeFromUrl(url);
-      if (code) loadCodeRef.current(code);
+      if (code) offerCodeRef.current(code);
     });
     return () => sub.remove();
   }, []);
@@ -525,6 +533,19 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           if (!problem) setShareOpen(false);
           return problem;
         }}
+      />
+      <ConfirmModal
+        visible={linkedCode !== null}
+        title="Load the shared game?"
+        body="A link has a game in it. Loading it replaces the game in progress, and every timeline of it is lost."
+        confirmLabel="Load the shared game"
+        cancelLabel="Keep playing"
+        onConfirm={() => {
+          const code = linkedCode;
+          setLinkedCode(null);
+          if (code) loadCode(code);
+        }}
+        onCancel={() => setLinkedCode(null)}
       />
       <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <Section title="Variants (apply to new games)">

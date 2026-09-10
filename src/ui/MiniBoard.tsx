@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Board, MAX_SIDE, index } from '../engine';
+import { Board, BoardRef, MAX_SIDE, index } from '../engine';
 import { Theme } from './theme';
 import { useTheme } from '../app/theme';
 
@@ -15,14 +15,26 @@ interface Props {
   ring?: string | null;
   dim?: boolean;
   badge?: string | null;
-  onPress?: () => void;
+  /**
+   * Where this thumbnail sits. Passed as two numbers, and the press callback
+   * is handed the board rather than a closure over it, so that every prop of
+   * a thumbnail whose look has not changed compares equal and React.memo can
+   * skip it: the map holds hundreds of these, each rows x cols views.
+   */
+  timeline?: number;
+  turn?: number;
+  onPress?: (ref: BoardRef) => void;
   accessibilityLabel?: string;
 }
 
 /** A thumbnail of one board, used in the multiverse map. */
-export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge, onPress, accessibilityLabel }: Props) {
+export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge, timeline, turn, onPress, accessibilityLabel }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const press = useCallback(
+    () => onPress?.({ timeline: timeline ?? 0, turn: turn ?? 0 }),
+    [onPress, timeline, turn],
+  );
   const rows: React.ReactNode[] = [];
   for (let r = board.rows - 1; r >= 0; r--) {
     const cells: React.ReactNode[] = [];
@@ -43,7 +55,7 @@ export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge
   }
   return (
     <Pressable
-      onPress={onPress}
+      onPress={onPress ? press : undefined}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={4}

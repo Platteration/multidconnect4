@@ -36,6 +36,18 @@ export function travelOrigin(state: GameState, selection: Selection, replaying: 
 }
 
 /**
+ * Whether a game arriving by link should be confirmed before it replaces the
+ * one on screen. The app's own scheme is registered with no host and no path,
+ * so any other app, any QR code and any web page can hand it a game code, and
+ * loading one throws the game in progress away for good: the autosave writes
+ * the replacement over it a moment later. A game nobody has moved in yet is
+ * worth nothing, so that is the only one a link may take without asking.
+ */
+export function linkNeedsConfirming(historyLength: number): boolean {
+  return historyLength > 1;
+}
+
+/**
  * What a screen reader calls one cell. Anything that is not a player index is
  * an empty cell: the board type says a cell holds a player or null, but a
  * value read out of a board must not be able to take the app down.
