@@ -1,0 +1,127 @@
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { Board, index, type Player } from '../engine';
+import { Theme, radius } from './theme';
+import { useTheme } from '../app/theme';
+
+interface Props {
+  board: Board;
+  cellSize: number;
+  /** Cells to draw with a highlight ring, e.g. the winning four. */
+  highlight?: readonly number[];
+  /** A single selected (picked up) disc. */
+  selected?: { row: number; col: number } | null;
+  /** Player whose discs can be tapped, or null when nothing is tappable. */
+  interactive: boolean;
+  /** When set, columns show a faint ghost disc in this colour at the landing row. */
+  ghostPlayer?: Player | null;
+  /** Draw a shape on each disc as well as its colour (colour-blind friendly). */
+  patterns?: boolean;
+  /** The disc that just landed, animated falling into place. */
+  dropped?: { row: number; col: number } | null;
+  onPressCell?: (row: number, col: number) => void;
+}
+
+/** The big playable board. Its width and height follow the board, which may have been spun. */
+export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, patterns, dropped, onPressCell }: Props) {
+  const fall = useRef(new Animated.Value(0)).current;
+  const dropKey = dropped ? `${dropped.row}-${dropped.col}-${board.cells.filter((c) => c !== null).length}` : null;
+  useEffect(() => {
+    if (!dropped) return;
+    fall.setValue(-(board.rows - dropped.row) * cellSize);
+    Animated.timing(fall, { toValue: 0, duration: 340, easing: Easing.bounce, useNativeDriver: true }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dropKey]);
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const gap = Math.max(2, Math.round(cellSize * 0.08));
+  const disc = cellSize - gap * 2;
+  const rows: React.ReactNode[] = [];
+  for (let r = board.rows - 1; r >= 0; r--) {
+    const cells: React.ReactNode[] = [];
+    for (let c = 0; c < board.cols; c++) {
+      const value = board.cells[index(board, r, c)];
+      const isSelected = !!selected && selected.row === r && selected.col === c;
+      const isHighlighted = highlight?.includes(index(board, r, c)) ?? false;
+      const isGhost =
+        ghostPlayer != null && value === null && (r === 0 || board.cells[index(board, r - 1, c)] !== null);
+      cells.push(
+        <Pressable
+          key={c}
+          onPress={onPressCell ? () => onPressCell(r, c) : undefined}
+          disabled={!interactive}
+          style={{ width: cellSize, height: cellSize, padding: gap }}
+          accessibilityRole="button"
+          accessibilityLabel={`row ${r + 1} column ${c + 1} ${value === null ? 'empty' : colors.playerNames[value].toLowerCase()}`}
+        >
+          <Animated.View
+            style={[
+              styles.hole,
+              { width: disc, height: disc, borderRadius: disc / 2 },
+              dropped && dropped.row === r && dropped.col === c ? { transform: [{ translateY: fall }] } : null,
+              value !== null && { backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
+              isGhost && { backgroundColor: colors.players[ghostPlayer!], opacity: 0.14, borderColor: 'transparent' },
+              isSelected && styles.selected,
+              isHighlighted && styles.highlighted,
+            ]}
+          >
+            {patterns && value !== null ? <Marker player={value} size={disc} /> : null}
+          </Animated.View>
+        </Pressable>,
+      );
+    }
+    rows.push(
+      <View key={r} style={styles.row}>
+        {cells}
+      </View>,
+    );
+  }
+  return <View style={[styles.board, { padding: gap }]}>{rows}</View>;
+}
+
+/** Red discs get a solid dot, Yellow discs a hollow ring. */
+function Marker({ player, size }: { player: Player; size: number }) {
+  const colors = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const d = Math.round(size * 0.36);
+  return (
+    <View style={styles.markerWrap}>
+      <View
+        style={{
+          width: d,
+          height: d,
+          borderRadius: d / 2,
+          backgroundColor: player === 0 ? 'rgba(0,0,0,0.45)' : 'transparent',
+          borderWidth: player === 1 ? Math.max(2, d * 0.22) : 0,
+          borderColor: 'rgba(0,0,0,0.45)',
+        }}
+      />
+    </View>
+  );
+}
+
+const makeStyles = (colors: Theme) =>
+  StyleSheet.create({
+  markerWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  board: {
+    backgroundColor: colors.board,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.boardDark,
+    alignSelf: 'center',
+  },
+  row: { flexDirection: 'row' },
+  hole: {
+    backgroundColor: colors.hole,
+    borderWidth: 2,
+    borderColor: colors.boardDark,
+  },
+  selected: {
+    borderColor: colors.focus,
+    borderWidth: 4,
+  },
+  highlighted: {
+    borderColor: colors.success,
+    borderWidth: 4,
+  },
+});
