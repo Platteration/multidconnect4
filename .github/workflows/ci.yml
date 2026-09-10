@@ -7,6 +7,10 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [connect4, checkers]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,7 +18,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test -- --ci
+      - run: npm run typecheck --workspace apps/${{ matrix.app }}
+      - run: npm test --workspace apps/${{ matrix.app }} -- --ci
       - name: Web export builds
         run: npx expo export --platform web
+        working-directory: apps/${{ matrix.app }}
