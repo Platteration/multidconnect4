@@ -2,11 +2,10 @@ import React, { useMemo } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import { useProgress } from '@5d/core/app';
 import { useStats } from '../app/stats';
-import { useTheme } from '../app/theme';
 import { BOT_NAMES, BotLevel } from '../engine';
 import { PUZZLES } from '../puzzles';
 import { Button } from './Modals';
-import { Theme, radius, spacing } from './theme';
+import { radius, spacing, Theme, useTheme } from './theme';
 
 interface Props {
   visible: boolean;

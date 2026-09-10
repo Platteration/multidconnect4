@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Board, SIZE, index, isPlayable } from '../engine';
-import { Theme } from './theme';
-import { useTheme } from '../app/theme';
+import { Theme, useTheme } from './theme';
 
 export const MINI_CELL = 6;
 export const MINI_WIDTH = SIZE * MINI_CELL + 8;

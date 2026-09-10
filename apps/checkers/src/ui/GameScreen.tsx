@@ -43,8 +43,7 @@ import { ShareModal } from './ShareModal';
 import { Button, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { Row, Section, SettingsModal } from './SettingsModal';
-import { Theme, radius, spacing } from './theme';
-import { useTheme } from '../app/theme';
+import { radius, spacing, Theme, useTheme } from './theme';
 import { useGame } from './useGame';
 
 interface Props {

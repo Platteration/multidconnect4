@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import { Button } from './Modals';
-import { Theme, radius, spacing } from './theme';
-import { useTheme } from '../app/theme';
+import { radius, spacing, Theme, useTheme } from './theme';
 
 export interface MenuItem {
   label: string;

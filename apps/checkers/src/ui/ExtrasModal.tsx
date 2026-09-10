@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useEntitlements } from '@5d/core/app';
-import { useTheme } from '../app/theme';
 import { Button } from './Modals';
-import { PIECE_SETS, SKINS, Theme, radius, spacing } from './theme';
+import { PIECE_SETS, radius, SKINS, spacing, Theme, useTheme } from './theme';
 
 interface Props {
   visible: boolean;

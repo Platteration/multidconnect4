@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { Board, index, type Player } from '../engine';
-import { Theme, radius } from './theme';
-import { useTheme } from '../app/theme';
+import { radius, Theme, useTheme } from './theme';
 
 interface Props {
   board: Board;

@@ -1,10 +1,9 @@
 import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useProgress } from '@5d/core/app';
-import { useTheme } from '../app/theme';
 import { PUZZLES, Puzzle } from '../puzzles';
 import { Button } from './Modals';
-import { Theme, radius, spacing } from './theme';
+import { radius, spacing, Theme, useTheme } from './theme';
 
 interface Props {
   visible: boolean;

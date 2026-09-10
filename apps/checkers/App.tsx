@@ -5,7 +5,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { EntitlementsProvider, keys, loadJson, ProgressProvider, SettingsProvider, useSettings } from '@5d/core/app';
 import { StatsProvider } from './src/app/stats';
 import { GameSetup, looksLikeSavedGame, normaliseSaved } from './src/app/setup';
-import { ThemeProvider, useTheme } from './src/app/theme';
+import { ThemeProvider } from '@5d/core/ui';
+import { buildTheme, useTheme } from './src/ui/theme';
 import type { GameState } from './src/engine';
 import { GameScreen } from './src/ui/GameScreen';
 
@@ -38,7 +39,7 @@ function Root() {
 export default function App() {
   return (
     <SettingsProvider>
-      <ThemeProvider>
+      <ThemeProvider build={buildTheme}>
         <ProgressProvider>
           <EntitlementsProvider>
             <StatsProvider>

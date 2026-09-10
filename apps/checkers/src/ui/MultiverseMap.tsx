@@ -11,8 +11,7 @@ import {
   timelineLabel,
 } from '../engine';
 import { MINI_HEIGHT, MINI_WIDTH, MiniBoard } from './MiniBoard';
-import { Theme, spacing } from './theme';
-import { useTheme } from '../app/theme';
+import { spacing, Theme, useTheme } from './theme';
 
 const SLOT = MINI_WIDTH + 10;
 const ROW = MINI_HEIGHT + 16;

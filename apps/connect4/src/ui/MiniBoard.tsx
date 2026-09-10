@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Board, MAX_SIDE, index } from '../engine';
-import { Theme } from './theme';
-import { useTheme } from '../app/theme';
+import { Theme, useTheme } from './theme';
 
 export const MINI_CELL = 7;
 /** Thumbnails are square so a spun board takes the same slot as an upright one. */

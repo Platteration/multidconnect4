@@ -1,11 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import { GameSetup } from '../app/setup';
-import { useTheme } from '../app/theme';
 import { BOT_NAMES, BotLevel, Player } from '../engine';
 import { Button } from './Modals';
 import { Choice } from './SettingsModal';
-import { Theme, radius, spacing } from './theme';
+import { radius, spacing, Theme, useTheme } from './theme';
 
 interface Props {
   visible: boolean;

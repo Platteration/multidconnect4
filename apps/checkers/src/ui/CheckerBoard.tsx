@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Board, SIZE, index, isPlayable } from '../engine';
-import { Theme, radius } from './theme';
-import { useTheme } from '../app/theme';
+import { radius, Theme, useTheme } from './theme';
 
 export interface Destination {
   square: number;

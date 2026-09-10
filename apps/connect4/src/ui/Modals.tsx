@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { GameState, timelineLabel } from '../engine';
-import { Theme, radius, spacing } from './theme';
-import { useTheme } from '../app/theme';
+import { radius, spacing, Theme, useTheme } from './theme';
 
 interface ButtonProps {
   label: string;
