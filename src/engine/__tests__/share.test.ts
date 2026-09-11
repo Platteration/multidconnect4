@@ -1,7 +1,8 @@
 import { decode, encode } from '../../app/base64';
 import { codeFromUrl } from '../../app/links';
-import { MAX_ACTIONS, MAX_CODE_LENGTH, decodeGame, encodeGame } from '../../app/share';
-import { Action, IllegalAction, applyAction, newGame } from '../index';
+import { MAX_ACTIONS, MAX_BOARDS, MAX_CODE_LENGTH, MAX_TIMELINES, decodeGame, encodeGame } from '../../app/share';
+import { enumerateActions } from '../bot';
+import { Action, GameState, IllegalAction, applyAction, newGame } from '../index';
 
 /** Wrap a payload exactly as a sender would, so the whole decode path runs. */
 const codeFor = (payload: unknown): string => `5DC4.${encode(JSON.stringify(payload))}`;
@@ -111,6 +112,75 @@ describe('hostile game codes', () => {
     const started = Date.now();
     expect(() => decodeGame(code)).toThrow(/too long/);
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  /** Every board of every timeline, which is what the map has to draw. */
+  const boardCount = (state: GameState) => state.timelines.reduce((n, tl) => n + tl.boards.length, 0);
+
+  /**
+   * A legal game played to branch as often as it can: travel whenever a
+   * travel is legal, otherwise take whatever else is on offer. Every travel
+   * adds a whole timeline, which is a row of thumbnails on the map.
+   */
+  function branchingActions(count: number): Action[] {
+    let state = newGame();
+    const actions: Action[] = [];
+    while (actions.length < count) {
+      const legal = enumerateActions(state, 3);
+      const action = legal.find((a) => a.type === 'travel') ?? legal[0];
+      if (!action) break;
+      const next = applyAction(state, action);
+      if (next.status !== 'playing') break;
+      state = next;
+      actions.push(action);
+    }
+    return actions;
+  }
+
+  it('refuses a code that builds more timelines than a game has, though it is inside both caps', () => {
+    // The caps above bound the replay, not the multiverse it leaves on
+    // screen. Every action here is legal and the code is small; what makes it
+    // hostile is the state at the end - one row of thumbnails per timeline.
+    const actions = branchingActions(200);
+    const code = codeFor({ v: 1, r: {}, m: 'local', a: actions });
+    expect(actions.length).toBeLessThanOrEqual(MAX_ACTIONS);
+    expect(code.length).toBeLessThanOrEqual(MAX_CODE_LENGTH);
+    // Counted from the actions themselves, not from the cap they run into.
+    const built = actions.reduce((s, a) => applyAction(s, a), newGame());
+    expect(built.timelines.length).toBeGreaterThan(MAX_TIMELINES);
+    expect(() => decodeGame(code)).toThrow(/too long/);
+  });
+
+  it('refuses a code that builds more boards than a game has, though it is inside both caps', () => {
+    // One timeline, so the cap above cannot be what stops it: drop/drop/pop/
+    // pop returns the board to empty, and every action still leaves a board
+    // behind for the map to draw.
+    const cycle: Action[] = [];
+    while (cycle.length < MAX_BOARDS + 50) {
+      cycle.push(
+        { type: 'drop', timeline: 0, col: 0 },
+        { type: 'drop', timeline: 0, col: 1 },
+        { type: 'pop', timeline: 0, col: 0 },
+        { type: 'pop', timeline: 0, col: 1 },
+      );
+    }
+    const code = codeFor({ v: 1, r: { popOut: true }, m: 'local', a: cycle });
+    expect(cycle.length).toBeLessThanOrEqual(MAX_ACTIONS);
+    expect(code.length).toBeLessThanOrEqual(MAX_CODE_LENGTH);
+    const built = cycle.reduce((s, a) => applyAction(s, a), newGame({ popOut: true }));
+    expect(built.timelines.length).toBe(1);
+    expect(boardCount(built)).toBeGreaterThan(MAX_BOARDS);
+    expect(() => decodeGame(code)).toThrow(/too long/);
+  });
+
+  it('still loads a game of the size people actually play', () => {
+    // The limits must not reach a real game: a branching one, replayed whole.
+    const actions = branchingActions(40);
+    const built = actions.reduce((s, a) => applyAction(s, a), newGame());
+    expect(built.timelines.length).toBeGreaterThan(1);
+    const loaded = decodeGame(codeFor({ v: 1, r: {}, m: 'local', a: actions }));
+    expect(loaded.history).toHaveLength(actions.length + 1);
+    expect(loaded.history[loaded.history.length - 1]).toEqual(built);
   });
 
   it('refuses an oversized code and an oversized link before decoding either', () => {

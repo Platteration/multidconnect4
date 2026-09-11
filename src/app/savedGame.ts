@@ -19,7 +19,21 @@ import { DEFAULT_SETUP, GameSetup } from './setup';
 
 export const SAVE_VERSION = 3;
 
-/** No real game comes near this; it bounds the replay a stored value can ask for. */
+/**
+ * No real game comes near this; it bounds the replay a stored value can ask
+ * for, and it is deliberately the only ceiling on this path. A game code is
+ * held to two more (MAX_TIMELINES, MAX_BOARDS): it arrives whole from someone
+ * else, and refusing one costs the player nothing they had. A save is the
+ * player's own game - every state in it was reached a move at a time through
+ * this app, and drew fine each time - so a ceiling on its size does not
+ * refuse anything, it deletes the game on the next launch, and two stubborn
+ * players popping discs back out pass what a code may carry in 500 moves.
+ * An oversized save cannot arrive by link either: decodeGame refuses the code
+ * before it could be autosaved. What is left to pay is the replay - worst
+ * case here, 1,500 actions rebuilding 2,473 boards, measured at 232 ms - and
+ * the draw, which the map bounds by mounting only the boards near the
+ * viewport.
+ */
 export const MAX_SAVED_ACTIONS = MAX_ACTIONS;
 
 export interface SavedGame {

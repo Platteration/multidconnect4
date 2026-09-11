@@ -7,6 +7,9 @@
  * directions: every action is checked against the shape the engine expects
  * before it is replayed, and both the code and the number of actions are
  * capped, because replaying a list costs memory that grows with its square.
+ * The multiverse a code builds is capped as well, not just the list that
+ * builds it: a short list of legal actions can still describe hundreds of
+ * timelines.
  */
 import { Action, GameState, Rules, applyAction, newGame } from '../engine';
 import { decode, encode } from './base64';
@@ -18,6 +21,33 @@ const PREFIX = '5DC4.';
 export const MAX_ACTIONS = 1500;
 /** A code for MAX_ACTIONS actions is well under this; anything longer is not a game. */
 export const MAX_CODE_LENGTH = 96 * 1024;
+/**
+ * The multiverse an imported code may build. A 30-ply game is 31 boards on
+ * one timeline, and a branching game that reaches 25 timelines is 65 boards,
+ * so these sit far above anything a code needs to carry - and a code that
+ * runs into them is refused before it replaces anything, which costs the
+ * recipient nothing. The game already in storage is deliberately not held to
+ * them; see MAX_SAVED_ACTIONS.
+ */
+export const MAX_TIMELINES = 64;
+export const MAX_BOARDS = 400;
+
+/**
+ * Whether a replayed state is still the size of a game somebody could play.
+ * The caps above bound the replay but not what it produces: every action can
+ * be legal, the list short enough and the code small enough, and the state at
+ * the end still hold hundreds of timelines. So the state is checked as it is
+ * built, action by action, which bounds the replay too.
+ */
+export function withinStateLimits(state: GameState): boolean {
+  if (state.timelines.length > MAX_TIMELINES) return false;
+  let boards = 0;
+  for (const tl of state.timelines) {
+    boards += tl.boards.length;
+    if (boards > MAX_BOARDS) return false;
+  }
+  return true;
+}
 
 const isIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
@@ -95,11 +125,14 @@ export function decodeGame(code: string): { history: GameState[]; setup: GameSet
   const history: GameState[] = [newGame(cleanRules(payload.r))];
   for (const action of payload.a) {
     if (!isAction(action)) throw new Error('That code contains a move that is not legal.');
+    let next: GameState;
     try {
-      history.push(applyAction(history[history.length - 1], action));
+      next = applyAction(history[history.length - 1], action);
     } catch {
       throw new Error('That code contains a move that is not legal.');
     }
+    if (!withinStateLimits(next)) throw new Error('That code is too long to be a real game.');
+    history.push(next);
   }
   return { history, setup: payload.m === 'bot' ? { mode: 'local' } : DEFAULT_SETUP };
 }

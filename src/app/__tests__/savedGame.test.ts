@@ -1,6 +1,8 @@
 import { Action, GameState, applyAction, mandatoryTimelines, newGame } from '../../engine';
+import { enumerateActions } from '../../engine/bot';
 import { PUZZLES } from '../../puzzles';
 import { MAX_SAVED_ACTIONS, restoreSavedGame, toSavedGame } from '../savedGame';
+import { MAX_BOARDS, MAX_TIMELINES } from '../share';
 import { GameSetup } from '../setup';
 
 const drop = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
@@ -13,6 +15,34 @@ function sampleHistory(): GameState[] {
     drop(0, 3), drop(1, 3), drop(0, 4), drop(1, 4),
   ];
   return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame()]);
+}
+
+/**
+ * A game two stubborn players actually reach: with pop out on, every move
+ * leaves a board behind and the board keeps coming back to empty, so a few
+ * hundred moves is one long timeline of hundreds of boards.
+ */
+function longShufflingGame(): GameState[] {
+  const actions: Action[] = [];
+  while (actions.length < 500) {
+    actions.push(drop(0, 0), drop(0, 1), { type: 'pop', timeline: 0, col: 0 }, { type: 'pop', timeline: 0, col: 1 });
+  }
+  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame({ popOut: true })]);
+}
+
+/** The other shape a long game takes: travel whenever travelling is legal. */
+function longBranchingGame(): GameState[] {
+  const history: GameState[] = [newGame()];
+  while (history.length <= 200) {
+    const state = history[history.length - 1];
+    const legal = enumerateActions(state, 3);
+    const action = legal.find((a) => a.type === 'travel') ?? legal[0];
+    if (!action) break;
+    const next = applyAction(state, action);
+    if (next.status !== 'playing') break;
+    history.push(next);
+  }
+  return history;
 }
 
 const LOCAL: GameSetup = { mode: 'local' };
@@ -50,6 +80,26 @@ describe('the game in storage', () => {
     const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, setup))));
     expect(restored!.history).toEqual(history);
     expect(restored!.setup).toEqual(setup);
+  });
+
+  it('keeps a game that has outgrown what a code is allowed to carry', () => {
+    // A save is the player's own game, not a stranger's code: every state in
+    // it was reached a move at a time through the app and drew fine on the
+    // way. Both games below are past the size an imported code is refused
+    // for - one in boards, one in timelines - and both have to still be
+    // there in the morning.
+    for (const history of [longShufflingGame(), longBranchingGame()]) {
+      const last = history[history.length - 1];
+      const boards = last.timelines.reduce((n, tl) => n + tl.boards.length, 0);
+      // Big enough to be the case under test, counted from the game itself.
+      expect(boards > MAX_BOARDS || last.timelines.length > MAX_TIMELINES).toBe(true);
+      expect(history.length - 1).toBeLessThanOrEqual(MAX_SAVED_ACTIONS);
+
+      const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, LOCAL))));
+      expect(restored).not.toBeNull();
+      expect(restored!.history).toHaveLength(history.length);
+      expect(restored!.history[restored!.history.length - 1]).toEqual(last);
+    }
   });
 
   it('still reads a save written as whole states', () => {

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   BoardRef,
   GameState,
@@ -18,6 +18,14 @@ const SLOT = MINI_WIDTH + 10;
 const ROW = MINI_HEIGHT + 16;
 /** Height of the turn-number header above the first row. */
 const HEADER = 18;
+/** Rows and turns drawn past each edge of the viewport, so a scroll never tears. */
+const OVERSCAN = 2;
+/**
+ * The viewport assumed for the very first render, before the map has been
+ * laid out. Bigger than the map is on any phone, so nothing is missing from
+ * that frame, and still a fixed size rather than the whole multiverse.
+ */
+const UNMEASURED = { width: 1024, height: 1024 };
 
 interface Props {
   state: GameState;
@@ -43,6 +51,35 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
   const horizontal = useRef<ScrollView>(null);
   const vertical = useRef<ScrollView>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  // Which row and which turn sit at the top-left corner. Kept as indices, not
+  // as pixel offsets, so a scroll re-renders the map when it crosses into the
+  // next board rather than on every frame.
+  const [corner, setCorner] = useState({ row: 0, turn: 0 });
+
+  // Only the boards near the corner are mounted. Every board that has ever
+  // existed is a thumbnail of rows x cols views, and how many boards exist is
+  // decided by the game code that built the state - so a map that drew them
+  // all would mount as many native views as whoever sent the code chose.
+  const viewWidth = viewport.width || UNMEASURED.width;
+  const viewHeight = viewport.height || UNMEASURED.height;
+  // An undo can take away the timeline or the turns being looked at, and the
+  // scroller only tells us where it ended up afterwards, so the corner is
+  // clamped here rather than trusted.
+  const topRow = Math.min(corner.row, Math.max(0, state.timelines.length - 1));
+  const leftTurn = Math.min(corner.turn, lastTurn + 1);
+  const firstRow = Math.max(0, topRow - OVERSCAN);
+  const rows = state.timelines.slice(firstRow, topRow + Math.ceil(viewHeight / ROW) + OVERSCAN + 1);
+  // A board for turn t is drawn at (t + 1) * SLOT, one slot in from the left.
+  const firstTurn = Math.max(0, leftTurn - 1 - OVERSCAN);
+  const finalTurn = Math.min(lastTurn, leftTurn + Math.ceil(viewWidth / SLOT) + OVERSCAN);
+  const onScrollX = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const turn = Math.max(0, Math.floor(e.nativeEvent.contentOffset.x / SLOT));
+    setCorner((c) => (c.turn === turn ? c : { ...c, turn }));
+  };
+  const onScrollY = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const row = Math.max(0, Math.floor(e.nativeEvent.contentOffset.y / ROW));
+    setCorner((c) => (c.row === row ? c : { ...c, row }));
+  };
 
   // One press callback for every thumbnail, for the life of the map. The map
   // re-renders on every focus, selection, animation and layout change; handing
@@ -90,24 +127,38 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
       showsHorizontalScrollIndicator
       style={styles.outer}
       contentContainerStyle={{ minWidth: '100%' }}
+      onScroll={onScrollX}
+      scrollEventThrottle={32}
       onLayout={(e) => setViewport({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
     >
-      <ScrollView ref={vertical} nestedScrollEnabled showsVerticalScrollIndicator contentContainerStyle={{ width, paddingBottom: spacing.md }}>
-        <View style={{ width, position: 'relative' }}>
+      <ScrollView
+        ref={vertical}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+        onScroll={onScrollY}
+        scrollEventThrottle={32}
+        contentContainerStyle={{ width, paddingBottom: spacing.md }}
+      >
+        {/* The rows are placed rather than stacked, so the ones outside the
+            window can be left out without moving the ones that are drawn. */}
+        <View style={{ width, height: HEADER + state.timelines.length * ROW, position: 'relative' }}>
         <View style={[styles.turnRow, { width }]}>
-          {Array.from({ length: lastTurn + 1 }, (_, turn) => (
-            <Text
-              key={turn}
-              style={[
-                styles.turnLabel,
-                { left: (turn + 1) * SLOT, width: SLOT, color: colors.players[playerToMoveAt(turn)] },
-              ]}
-            >
-              t{turn}
-            </Text>
-          ))}
+          {Array.from({ length: Math.max(0, finalTurn - firstTurn + 1) }, (_, i) => {
+            const turn = firstTurn + i;
+            return (
+              <Text
+                key={turn}
+                style={[
+                  styles.turnLabel,
+                  { left: (turn + 1) * SLOT, width: SLOT, color: colors.players[playerToMoveAt(turn)] },
+                ]}
+              >
+                t{turn}
+              </Text>
+            );
+          })}
         </View>
-        {state.timelines.map((tl) => {
+        {rows.map((tl) => {
           if (!tl.branchedFrom) return null;
           // A line from the bottom of the board this timeline branched from down to its label.
           const x = (tl.branchedFrom.turn + 1) * SLOT + MINI_WIDTH / 2;
@@ -118,10 +169,13 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
             <View key={`link-${tl.id}`} pointerEvents="none" style={[styles.link, { left: x - 1, top, height: Math.max(0, bottom - top), backgroundColor: color }]} />
           );
         })}
-        {state.timelines.map((tl) => {
+        {rows.map((tl) => {
           const labelColor = tl.createdBy === null ? colors.textMuted : colors.players[tl.createdBy];
+          // The boards of this row that fall inside the window of turns.
+          const from = Math.max(0, firstTurn - tl.startTurn);
+          const until = Math.max(from, Math.min(tl.boards.length, finalTurn - tl.startTurn + 1));
           return (
-            <View key={tl.id} style={[styles.timelineRow, { width }]}>
+            <View key={tl.id} style={[styles.timelineRow, { width, top: HEADER + tl.id * ROW }]}>
               <View style={[styles.label, { left: tl.startTurn * SLOT, borderColor: labelColor }]}>
                 <Text style={[styles.labelText, { color: labelColor }]}>T{tl.id + 1}</Text>
                 {tl.branchedFrom ? (
@@ -132,8 +186,8 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
                   <Text style={styles.labelSub}>start</Text>
                 )}
               </View>
-              {tl.boards.map((board, i) => {
-                const turn = tl.startTurn + i;
+              {tl.boards.slice(from, until).map((board, i) => {
+                const turn = tl.startTurn + from + i;
                 const ref: BoardRef = { timeline: tl.id, turn };
                 const isLatest = turn === latestTurn(tl);
                 const isPending =
@@ -208,7 +262,7 @@ const makeStyles = (colors: Theme) =>
     textAlign: 'center',
     opacity: 0.85,
   },
-  timelineRow: { height: ROW, position: 'relative' },
+  timelineRow: { position: 'absolute', left: 0, height: ROW },
   label: {
     position: 'absolute',
     top: 8,

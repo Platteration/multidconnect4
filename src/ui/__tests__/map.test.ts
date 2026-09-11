@@ -38,7 +38,11 @@ import { MultiverseMap } from '../MultiverseMap';
 
 // The renderer ships with jest-expo but carries no type definitions, and this
 // project deliberately depends on nothing extra, so it is described here.
+interface Node {
+  props: Record<string, unknown>;
+}
 interface Tree {
+  root: { findAll(match: (node: Node) => boolean): Node[] };
   update(element: React.ReactElement): void;
   unmount(): void;
 }
@@ -91,11 +95,57 @@ function render(state: GameState, onPressBoard: (ref: BoardRef) => void) {
       TestRenderer.act(() => {
         tree!.update(element());
       }),
+    /** Scroll the map down, the way a finger would. */
+    scrollDown: (y: number) => {
+      // The vertical scroller is the nested one; the outer scroller is
+      // horizontal. Both have an onScroll, and the host view repeats it.
+      const scrollers = tree!.root.findAll(
+        (node) => typeof node.props.onScroll === 'function' && node.props.nestedScrollEnabled === true,
+      );
+      const onScroll = scrollers[0].props.onScroll as (e: unknown) => void;
+      TestRenderer.act(() => {
+        onScroll({ nativeEvent: { contentOffset: { x: 0, y } } });
+      });
+    },
     unmount: () =>
       TestRenderer.act(() => {
         tree!.unmount();
       }),
   };
+}
+
+/**
+ * A multiverse far bigger than any screen, built by hand rather than played:
+ * what is under test is what the map does with the state it is handed, and a
+ * game code decides that state. Every timeline is the same shape, so the
+ * number of thumbnails the map draws can be compared between two sizes.
+ */
+function wideMultiverse(timelines: number): GameState {
+  const base = newGame();
+  const board = base.timelines[0].boards[0];
+  return {
+    ...base,
+    timelines: Array.from({ length: timelines }, (_, id) => ({
+      id,
+      startTurn: 0,
+      boards: [board, board, board, board],
+      createdBy: id === 0 ? null : (0 as const),
+      branchedFrom: id === 0 ? null : { timeline: 0, turn: 0 },
+      origin: id === 0 ? null : { timeline: 0, turn: 0 },
+    })),
+  };
+}
+
+/** One timeline that has run for a very long time: a wide map, not a tall one. */
+function longTimeline(turns: number): GameState {
+  const base = newGame();
+  const board = base.timelines[0].boards[0];
+  return { ...base, timelines: [{ ...base.timelines[0], boards: Array.from({ length: turns }, () => board) }] };
+}
+
+/** Which timelines have a thumbnail mounted right now. */
+function drawnTimelines(): number[] {
+  return mockThumbnailProps.map((p) => p.timeline as number);
 }
 
 describe('the multiverse map', () => {
@@ -129,6 +179,62 @@ describe('the multiverse map', () => {
     last.onPress!({ timeline: last.timeline!, turn: last.turn! });
     expect(pressed).toEqual([{ timeline: 1, turn: 3 }]);
     view.unmount();
+  });
+
+  it('draws a screenful of thumbnails, not every board the state holds', () => {
+    // Each thumbnail is rows x cols views, so a map that drew them all would
+    // mount as many native views as whoever wrote the game code chose. Ten
+    // times the multiverse must not be ten times the views.
+    const small = wideMultiverse(200);
+    const big = wideMultiverse(2000);
+    expect(boardCount(big)).toBe(boardCount(small) * 10);
+
+    const first = render(small, () => {});
+    const drawnSmall = mockThumbnailRenders;
+    first.unmount();
+    mockThumbnailRenders = 0;
+    mockThumbnailProps = [];
+    const second = render(big, () => {});
+    const drawnBig = mockThumbnailRenders;
+    second.unmount();
+
+    expect(drawnBig).toBe(drawnSmall);
+    expect(drawnSmall * 4).toBeLessThan(boardCount(small));
+  });
+
+  it('draws a screenful of turns, however long the game has run', () => {
+    // The same bound the other way round: one timeline, thousands of turns.
+    const short = longTimeline(200);
+    const long = longTimeline(2000);
+    expect(boardCount(long)).toBe(boardCount(short) * 10);
+
+    const first = render(short, () => {});
+    const drawnShort = mockThumbnailRenders;
+    first.unmount();
+    mockThumbnailRenders = 0;
+    mockThumbnailProps = [];
+    const second = render(long, () => {});
+    const drawnLong = mockThumbnailRenders;
+    second.unmount();
+
+    expect(drawnLong).toBe(drawnShort);
+    expect(drawnShort * 4).toBeLessThan(boardCount(short));
+  });
+
+  it('draws the rows a scroll brings into view', () => {
+    // Windowing is only honest if the rest of the multiverse is still
+    // reachable: what is drawn has to follow the scroll.
+    const state = wideMultiverse(2000);
+    const view = render(state, () => {});
+    const before = drawnTimelines();
+    mockThumbnailProps = [];
+    view.scrollDown(50000);
+    const after = drawnTimelines();
+    view.unmount();
+
+    expect(after.length).toBeGreaterThan(0);
+    expect(Math.min(...after)).toBeGreaterThan(Math.max(...before));
+    expect(after.length * 4).toBeLessThan(boardCount(state));
   });
 
   it('keeps the thumbnail memoised', () => {
