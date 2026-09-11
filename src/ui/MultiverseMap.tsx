@@ -18,8 +18,24 @@ const SLOT = MINI_WIDTH + 10;
 const ROW = MINI_HEIGHT + 16;
 /** Height of the turn-number header above the first row. */
 const HEADER = 18;
+/** The gap between the top of a row and the thumbnail sitting in it. */
+const SLOT_TOP = 8;
 /** Rows and turns drawn past each edge of the viewport, so a scroll never tears. */
 const OVERSCAN = 2;
+/**
+ * How many branch lines may be drawn at once. A line spans from the row it
+ * branched off to its own, so unlike a thumbnail it is not tied to one row
+ * and a state can put one across the window per timeline; this keeps that
+ * bounded the way the rows themselves are.
+ */
+const MAX_LINKS = 120;
+/**
+ * Where the map puts things. Exported so a test can measure the map against
+ * the arithmetic it claims, rather than against the arithmetic it uses: a row
+ * is positioned by its timeline's id while the window is chosen by index, and
+ * the two agree only because ids are dense (see the engine's own test).
+ */
+export const MAP_LAYOUT = { HEADER, ROW, SLOT, SLOT_TOP } as const;
 /**
  * The viewport assumed for the very first render, before the map has been
  * laid out. Bigger than the map is on any phone, so nothing is missing from
@@ -69,6 +85,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
   const leftTurn = Math.min(corner.turn, lastTurn + 1);
   const firstRow = Math.max(0, topRow - OVERSCAN);
   const rows = state.timelines.slice(firstRow, topRow + Math.ceil(viewHeight / ROW) + OVERSCAN + 1);
+  const lastRow = firstRow + rows.length - 1;
   // A board for turn t is drawn at (t + 1) * SLOT, one slot in from the left.
   const firstTurn = Math.max(0, leftTurn - 1 - OVERSCAN);
   const finalTurn = Math.min(lastTurn, leftTurn + Math.ceil(viewWidth / SLOT) + OVERSCAN);
@@ -80,6 +97,20 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
     const row = Math.max(0, Math.floor(e.nativeEvent.contentOffset.y / ROW));
     setCorner((c) => (c.row === row ? c : { ...c, row }));
   };
+
+  // A branch line runs from the row it came from down to its own, so it can
+  // cross the window with neither end inside it - which windowing the lines
+  // by row membership, the way the thumbnails are windowed, drops. They are
+  // selected by whether the line itself crosses the window instead, and kept
+  // bounded by drawing the ones that end inside it first.
+  const links = useMemo(() => {
+    const crossing = state.timelines.filter(
+      (tl) => tl.branchedFrom && tl.id >= firstRow && tl.branchedFrom.timeline <= lastRow,
+    );
+    if (crossing.length <= MAX_LINKS) return crossing;
+    const ending = crossing.filter((tl) => tl.id <= lastRow);
+    return [...ending, ...crossing.filter((tl) => tl.id > lastRow)].slice(0, MAX_LINKS);
+  }, [state.timelines, firstRow, lastRow]);
 
   // One press callback for every thumbnail, for the life of the map. The map
   // re-renders on every focus, selection, animation and layout change; handing
@@ -99,8 +130,8 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
     const from = travel.from.timeline;
     const fromTurn = state.lastCreated[0].turn - 1;
     const to = state.lastCreated[1];
-    const start = { x: (fromTurn + 1) * SLOT + MINI_WIDTH / 2, y: HEADER + from * ROW + 8 + MINI_HEIGHT / 2 };
-    const end = { x: (to.turn + 1) * SLOT + MINI_WIDTH / 2, y: HEADER + to.timeline * ROW + 8 + MINI_HEIGHT / 2 };
+    const start = { x: (fromTurn + 1) * SLOT + MINI_WIDTH / 2, y: HEADER + from * ROW + SLOT_TOP + MINI_HEIGHT / 2 };
+    const end = { x: (to.turn + 1) * SLOT + MINI_WIDTH / 2, y: HEADER + to.timeline * ROW + SLOT_TOP + MINI_HEIGHT / 2 };
     flight.setValue(start);
     flightOpacity.setValue(1);
     Animated.sequence([
@@ -158,12 +189,12 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
             );
           })}
         </View>
-        {rows.map((tl) => {
+        {links.map((tl) => {
           if (!tl.branchedFrom) return null;
           // A line from the bottom of the board this timeline branched from down to its label.
           const x = (tl.branchedFrom.turn + 1) * SLOT + MINI_WIDTH / 2;
-          const top = HEADER + tl.branchedFrom.timeline * ROW + 8 + MINI_HEIGHT;
-          const bottom = HEADER + tl.id * ROW + 8;
+          const top = HEADER + tl.branchedFrom.timeline * ROW + SLOT_TOP + MINI_HEIGHT;
+          const bottom = HEADER + tl.id * ROW + SLOT_TOP;
           const color = tl.createdBy === null ? colors.textMuted : colors.players[tl.createdBy];
           return (
             <View key={`link-${tl.id}`} pointerEvents="none" style={[styles.link, { left: x - 1, top, height: Math.max(0, bottom - top), backgroundColor: color }]} />
@@ -265,7 +296,7 @@ const makeStyles = (colors: Theme) =>
   timelineRow: { position: 'absolute', left: 0, height: ROW },
   label: {
     position: 'absolute',
-    top: 8,
+    top: SLOT_TOP,
     width: SLOT - 10,
     height: MINI_HEIGHT,
     borderRadius: 6,
@@ -276,7 +307,7 @@ const makeStyles = (colors: Theme) =>
   },
   labelText: { fontSize: 13, fontWeight: '800' },
   labelSub: { fontSize: 8, color: colors.textMuted, marginTop: 2 },
-  slot: { position: 'absolute', top: 8 },
+  slot: { position: 'absolute', top: SLOT_TOP },
   link: { position: 'absolute', width: 2, opacity: 0.55, borderRadius: 1 },
   flyer: {
     position: 'absolute',

@@ -22,31 +22,62 @@ export const MAX_ACTIONS = 1500;
 /** A code for MAX_ACTIONS actions is well under this; anything longer is not a game. */
 export const MAX_CODE_LENGTH = 96 * 1024;
 /**
- * The multiverse an imported code may build. A 30-ply game is 31 boards on
- * one timeline, and a branching game that reaches 25 timelines is 65 boards,
- * so these sit far above anything a code needs to carry - and a code that
- * runs into them is refused before it replaces anything, which costs the
- * recipient nothing. The game already in storage is deliberately not held to
- * them; see MAX_SAVED_ACTIONS.
+ * The multiverse a code may carry, in either direction: a code that would
+ * build more than this is refused when it is made as well as when it is read,
+ * because a code the sender's own app will not load back is a game the two of
+ * them cannot finish, announced on the wrong phone.
+ *
+ * Replaying an action rebuilds every timeline object and copies every board
+ * reference, so a code costs its action count times the size of the state it
+ * builds - timelines being the expensive half (a fresh object each) and
+ * boards the cheap one (a reference). MAX_TIMELINES is therefore the cap that
+ * bounds the work, and the one a branching game meets first: real play makes
+ * about 5 to 7 boards per timeline (self-play measures 5.1-6.7 over the games
+ * that branch), not the 2.6 of the all-travel construction these numbers were
+ * first sized against, so 64 timelines of real play is 330-450 boards.
+ *
+ * MAX_BOARDS is a backstop for the other shape of long game, and it has to
+ * sit above every game the app itself will keep: a 500-move pop-out game -
+ * two stubborn players, one timeline, nothing exotic - is 501 boards, and
+ * MAX_SAVED_ACTIONS lets that game run to 1,501. At 400 it refused all of
+ * those, and refused them at both ends. Every action leaves at most one board
+ * behind plus one more when it opens a timeline, so inside these two caps a
+ * game holds at most 1 + MAX_ACTIONS + MAX_TIMELINES = 1,565 boards: the
+ * board cap never fires first, which is what makes it a backstop rather than
+ * a second opinion. Measured on desktop V8: the most expensive codes these
+ * caps accept are 1,500 actions on one timeline (1,501 boards, 56 ms, 18 MB)
+ * and 1,114 actions across 64 timelines (1,178 boards, 82 ms, 21 MB).
  */
 export const MAX_TIMELINES = 64;
-export const MAX_BOARDS = 400;
+export const MAX_BOARDS = 1600;
+
+/** Why a state is too big to travel in a code, or null when it is not. */
+export interface StateLimit {
+  what: 'timelines' | 'boards';
+  count: number;
+  limit: number;
+}
 
 /**
- * Whether a replayed state is still the size of a game somebody could play.
- * The caps above bound the replay but not what it produces: every action can
- * be legal, the list short enough and the code small enough, and the state at
- * the end still hold hundreds of timelines. So the state is checked as it is
- * built, action by action, which bounds the replay too.
+ * What makes a state too big to be a game somebody could play, or null when
+ * nothing does. The caps above bound the replay but not what it produces:
+ * every action can be legal, the list short enough and the code small enough,
+ * and the state at the end still hold hundreds of timelines. So the state is
+ * checked as it is built, action by action, which bounds the replay too, and
+ * what it ran into is reported rather than just that it ran into something.
  */
-export function withinStateLimits(state: GameState): boolean {
-  if (state.timelines.length > MAX_TIMELINES) return false;
-  let boards = 0;
-  for (const tl of state.timelines) {
-    boards += tl.boards.length;
-    if (boards > MAX_BOARDS) return false;
+export function stateLimit(state: GameState): StateLimit | null {
+  if (state.timelines.length > MAX_TIMELINES) {
+    return { what: 'timelines', count: state.timelines.length, limit: MAX_TIMELINES };
   }
-  return true;
+  let boards = 0;
+  for (const tl of state.timelines) boards += tl.boards.length;
+  if (boards > MAX_BOARDS) return { what: 'boards', count: boards, limit: MAX_BOARDS };
+  return null;
+}
+
+export function withinStateLimits(state: GameState): boolean {
+  return stateLimit(state) === null;
 }
 
 const isIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
@@ -103,9 +134,48 @@ export function actionsOf(history: GameState[]): Action[] {
   return history.slice(1).map((s) => s.lastAction).filter((a): a is Action => !!a);
 }
 
+/**
+ * A game as a code. This only writes one: whether the code is one this app
+ * would read back is shareCodeFor's question, and the screen asks it there.
+ */
 export function encodeGame(history: GameState[], setup: GameSetup): string {
   const payload: Payload = { v: 1, r: history[0].rules, m: setup.mode === 'puzzle' ? 'local' : setup.mode, a: actionsOf(history) };
   return PREFIX + encode(JSON.stringify(payload));
+}
+
+/** A game as a code to send, or the reason it cannot be sent. */
+export interface ShareCode {
+  code: string | null;
+  /** Why there is no code, in words the sender can act on. */
+  problem: string | null;
+}
+
+/**
+ * The code for a game, refused here rather than on the recipient's phone.
+ * Every limit decodeGame holds a code to is a limit this app can reach by
+ * playing - 1,500 saved moves is past what a code may carry - and a sender
+ * who is allowed to copy such a code learns nothing: their opponent is the
+ * one who is told, about a game that is real, in words that suggest it is
+ * not. So the same limits are asked before the Copy and Share buttons are
+ * offered at all.
+ */
+export function shareCodeFor(history: GameState[], setup: GameSetup): ShareCode {
+  const limit = stateLimit(history[history.length - 1]);
+  if (limit) {
+    return {
+      code: null,
+      problem: `This game has grown past what a code can carry: ${limit.count} ${limit.what}, against the ${limit.limit} a code holds. It is still yours to play and to keep - it just cannot be sent.`,
+    };
+  }
+  const actions = actionsOf(history).length;
+  if (actions > MAX_ACTIONS) {
+    return { code: null, problem: `This game is ${actions} moves long, and a code carries ${MAX_ACTIONS}. It is still yours to play and to keep - it just cannot be sent.` };
+  }
+  const code = encodeGame(history, setup);
+  if (code.length > MAX_CODE_LENGTH) {
+    return { code: null, problem: `This game makes a code of ${code.length} characters, and a code carries ${MAX_CODE_LENGTH}. It is still yours to play and to keep - it just cannot be sent.` };
+  }
+  return { code, problem: null };
 }
 
 export function decodeGame(code: string): { history: GameState[]; setup: GameSetup } {
@@ -131,7 +201,12 @@ export function decodeGame(code: string): { history: GameState[]; setup: GameSet
     } catch {
       throw new Error('That code contains a move that is not legal.');
     }
-    if (!withinStateLimits(next)) throw new Error('That code is too long to be a real game.');
+    const limit = stateLimit(next);
+    // Not "too long to be a real game": a game this size is perfectly real,
+    // and telling the recipient otherwise accuses the sender of faking it.
+    if (limit) {
+      throw new Error(`That game has ${limit.count} ${limit.what}, more than the ${limit.limit} this app will load from a code.`);
+    }
     history.push(next);
   }
   return { history, setup: payload.m === 'bot' ? { mode: 'local' } : DEFAULT_SETUP };

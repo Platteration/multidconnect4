@@ -26,13 +26,13 @@ import {
 import { useEntitlements } from '../app/entitlements';
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { keys, removeKey, saveJson } from '../app/persist';
-import { toSavedGame } from '../app/savedGame';
+import { MAX_SAVED_ACTIONS, toSavedGame } from '../app/savedGame';
 import { useSettings } from '../app/settings';
 import { codeFromUrl, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { useProgress } from '../app/progress';
-import { decodeGame, encodeGame } from '../app/share';
+import { decodeGame, shareCodeFor } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { DiscBoard } from './DiscBoard';
@@ -58,9 +58,11 @@ interface Props {
   /** A saved game to resume, oldest state first. */
   initialHistory?: GameState[];
   initialSetup?: GameSetup;
+  /** What was lost on the way in, when a stored game came back short or not at all. */
+  initialNotice?: string | null;
 }
 
-export function GameScreen({ initialHistory, initialSetup }: Props) {
+export function GameScreen({ initialHistory, initialSetup, initialNotice }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
@@ -173,8 +175,14 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     ],
     [welcomeDemo, colors],
   );
-  const shareCode = useMemo(
-    () => (game.history.length > 1 && game.setup.mode !== 'puzzle' ? encodeGame(game.history, game.setup) : null),
+  // The code, or the reason this game has outgrown one. Asked here rather
+  // than left for the recipient: a code that cannot be loaded back must not
+  // be offered for copying, or the failure lands on the wrong phone.
+  const share = useMemo(
+    () =>
+      game.history.length > 1 && game.setup.mode !== 'puzzle'
+        ? shareCodeFor(game.history, game.setup)
+        : { code: null, problem: null },
     [game.history, game.setup],
   );
   const { width, height } = useWindowDimensions();
@@ -194,6 +202,13 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   // Save the game whenever it changes, a moment after the last change. Only
   // the actions are written; the history is rebuilt by replaying them.
   const [saveFailed, setSaveFailed] = useState(false);
+  // A game that came back short says so until the player's next move, rather
+  // than for one frame nobody reads or over the top of every later hint.
+  const restoredLength = useRef(initialHistory?.length ?? 1);
+  const notice = initialNotice && game.history.length === restoredLength.current ? initialNotice : null;
+  // And a game heading for the same loss says so before it happens: what is
+  // saved past this is written but never replayed back.
+  const pastReload = game.history.length - 1 > MAX_SAVED_ACTIONS;
   useEffect(() => {
     const timer = setTimeout(() => {
       if (game.history.length > 1) {
@@ -430,8 +445,13 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         />
       ) : null}
       <View style={[styles.hintRow, replaying && { display: 'none' }]}>
-        <Text style={[styles.hint, game.error ? { color: colors.danger } : null]} numberOfLines={3}>
-          {game.error ?? (saveFailed ? 'This game is too big to save; it will be lost when the app closes.' : hint)}
+        <Text style={[styles.hint, game.error || notice || pastReload ? { color: colors.danger } : null]} numberOfLines={3}>
+          {game.error ??
+            (saveFailed
+              ? 'This game is too big to save; it will be lost when the app closes.'
+              : pastReload
+                ? `This game is past the ${MAX_SAVED_ACTIONS} moves the app can reload; reopening it comes back at move ${MAX_SAVED_ACTIONS}.`
+                : notice ?? hint)}
         </Text>
         {puzzle && selection.kind === 'none' && humanTurn && state.status === 'playing' ? (
           <Button label={showHint ? 'Brief' : 'Hint'} small onPress={() => setShowHint((h) => !h)} />
@@ -525,9 +545,10 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       />
       <ShareModal
         visible={shareOpen}
-        code={shareCode}
+        code={share.code}
+        problem={share.problem}
         onClose={() => setShareOpen(false)}
-        link={shareCode ? webLinkFor(shareCode) : null}
+        link={share.code ? webLinkFor(share.code) : null}
         onLoad={(code) => {
           const problem = loadCode(code);
           if (!problem) setShareOpen(false);

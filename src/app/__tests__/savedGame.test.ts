@@ -2,7 +2,7 @@ import { Action, GameState, applyAction, mandatoryTimelines, newGame } from '../
 import { enumerateActions } from '../../engine/bot';
 import { PUZZLES } from '../../puzzles';
 import { MAX_SAVED_ACTIONS, restoreSavedGame, toSavedGame } from '../savedGame';
-import { MAX_BOARDS, MAX_TIMELINES } from '../share';
+import { MAX_BOARDS, MAX_TIMELINES, withinStateLimits } from '../share';
 import { GameSetup } from '../setup';
 
 const drop = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
@@ -22,12 +22,14 @@ function sampleHistory(): GameState[] {
  * leaves a board behind and the board keeps coming back to empty, so a few
  * hundred moves is one long timeline of hundreds of boards.
  */
-function longShufflingGame(): GameState[] {
+function longShufflingGame(moves: number): GameState[] {
   const actions: Action[] = [];
-  while (actions.length < 500) {
+  while (actions.length < moves) {
     actions.push(drop(0, 0), drop(0, 1), { type: 'pop', timeline: 0, col: 0 }, { type: 'pop', timeline: 0, col: 1 });
   }
-  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame({ popOut: true })]);
+  return actions
+    .slice(0, moves)
+    .reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame({ popOut: true })]);
 }
 
 /** The other shape a long game takes: travel whenever travelling is legal. */
@@ -85,21 +87,54 @@ describe('the game in storage', () => {
   it('keeps a game that has outgrown what a code is allowed to carry', () => {
     // A save is the player's own game, not a stranger's code: every state in
     // it was reached a move at a time through the app and drew fine on the
-    // way. Both games below are past the size an imported code is refused
-    // for - one in boards, one in timelines - and both have to still be
-    // there in the morning.
-    for (const history of [longShufflingGame(), longBranchingGame()]) {
-      const last = history[history.length - 1];
-      const boards = last.timelines.reduce((n, tl) => n + tl.boards.length, 0);
-      // Big enough to be the case under test, counted from the game itself.
-      expect(boards > MAX_BOARDS || last.timelines.length > MAX_TIMELINES).toBe(true);
-      expect(history.length - 1).toBeLessThanOrEqual(MAX_SAVED_ACTIONS);
+    // way. This one is past the size an imported code is refused for, and it
+    // has to still be there in the morning, whole.
+    const history = longBranchingGame();
+    const last = history[history.length - 1];
+    const boards = last.timelines.reduce((n, tl) => n + tl.boards.length, 0);
+    // Big enough to be the case under test, counted from the game itself.
+    expect(boards > MAX_BOARDS || last.timelines.length > MAX_TIMELINES).toBe(true);
+    expect(history.length - 1).toBeLessThanOrEqual(MAX_SAVED_ACTIONS);
 
-      const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, LOCAL))));
-      expect(restored).not.toBeNull();
-      expect(restored!.history).toHaveLength(history.length);
-      expect(restored!.history[restored!.history.length - 1]).toEqual(last);
-    }
+    const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, LOCAL))));
+    expect(restored).not.toBeNull();
+    expect(restored!.truncated).toBe(false);
+    expect(restored!.history).toHaveLength(history.length);
+    expect(restored!.history[restored!.history.length - 1]).toEqual(last);
+  });
+
+  it('brings back what it can of a game longer than it will replay, not nothing', () => {
+    // The ceiling on this path is real - an unbounded replay at launch is
+    // unbounded work behind the spinner - but it used to refuse: replay
+    // returned null, App.tsx removed the key, and a 55 KB save that storage
+    // was nowhere near refusing became a new game at turn 0, in silence. The
+    // game a code cannot carry is exactly the game this path exists for, so
+    // what it can replay comes back, and says that it is short.
+    const history = longShufflingGame(MAX_SAVED_ACTIONS + 40);
+    expect(history.length - 1).toBeGreaterThan(MAX_SAVED_ACTIONS);
+
+    const stored = JSON.parse(JSON.stringify(toSavedGame(history, LOCAL)));
+    expect(JSON.stringify(stored).length).toBeLessThan(200 * 1024);
+    const restored = restoreSavedGame(stored);
+    expect(restored).not.toBeNull();
+    expect(restored!.truncated).toBe(true);
+    // What it kept is the game as it was played, up to where it stopped.
+    expect(restored!.history.length).toBeGreaterThan(history.length / 2);
+    expect(restored!.history[restored!.history.length - 1]).toEqual(history[restored!.history.length - 1]);
+    expect(restored!.history[0]).toEqual(history[0]);
+  });
+
+  it('keeps every move of the long pop-out game, which a code carries too', () => {
+    // The 500-move game the save path was written for. Nothing about it is
+    // exotic, and both paths have to hold it: kept here, sendable there.
+    const history = longShufflingGame(500);
+    const last = history[history.length - 1];
+    expect(last.timelines[0].boards).toHaveLength(501);
+    const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, LOCAL))));
+    expect(restored!.truncated).toBe(false);
+    expect(restored!.history).toHaveLength(history.length);
+    expect(restored!.history[restored!.history.length - 1]).toEqual(last);
+    expect(withinStateLimits(last)).toBe(true);
   });
 
   it('still reads a save written as whole states', () => {
@@ -166,10 +201,32 @@ describe('a saved game that cannot be trusted', () => {
   });
 
   it('will not replay an unbounded list of actions', () => {
+    // Nonsense past the first few moves: the column fills, so this one is
+    // refused outright rather than truncated.
     const actions = Array.from({ length: MAX_SAVED_ACTIONS + 1 }, () => drop(0, 0));
     const started = Date.now();
     expect(restoreSavedGame({ version: 3, rules: {}, setup: LOCAL, actions })).toBeNull();
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('does not walk a list past the point it stops replaying it', () => {
+    // Truncating must not mean reading the whole list first: a stored value
+    // is still a stored value, and this one is 200 times the ceiling.
+    const cycle: Action[] = [
+      drop(0, 0),
+      drop(0, 1),
+      { type: 'pop', timeline: 0, col: 0 },
+      { type: 'pop', timeline: 0, col: 1 },
+    ];
+    const actions: unknown[] = Array.from({ length: MAX_SAVED_ACTIONS * 200 }, (_, i) =>
+      i < MAX_SAVED_ACTIONS ? cycle[i % 4] : 'not an action at all',
+    );
+    const started = Date.now();
+    const restored = restoreSavedGame({ version: 3, rules: { popOut: true }, setup: LOCAL, actions });
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(restored).not.toBeNull();
+    expect(restored!.truncated).toBe(true);
+    expect(restored!.history).toHaveLength(MAX_SAVED_ACTIONS + 1);
   });
 
   it('keeps a bot game only when the bot is one this app has', () => {

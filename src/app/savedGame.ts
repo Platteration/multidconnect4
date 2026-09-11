@@ -20,21 +20,40 @@ import { DEFAULT_SETUP, GameSetup } from './setup';
 export const SAVE_VERSION = 3;
 
 /**
- * No real game comes near this; it bounds the replay a stored value can ask
- * for, and it is deliberately the only ceiling on this path. A game code is
- * held to two more (MAX_TIMELINES, MAX_BOARDS): it arrives whole from someone
- * else, and refusing one costs the player nothing they had. A save is the
- * player's own game - every state in it was reached a move at a time through
- * this app, and drew fine each time - so a ceiling on its size does not
- * refuse anything, it deletes the game on the next launch, and two stubborn
- * players popping discs back out pass what a code may carry in 500 moves.
+ * How much of a stored game is replayed at launch, and the only ceiling on
+ * this path. It is not a refusal: a longer save is replayed this far and the
+ * rest dropped, and the player is told the game came back short. That
+ * difference is the whole point. A game code is held to two more limits
+ * (MAX_TIMELINES, MAX_BOARDS) and refused outright, because it arrives whole
+ * from someone else and refusing one costs the player nothing they had. A
+ * save is the player's own game - every state in it was reached a move at a
+ * time through this app, and drew fine each time - so refusing one does not
+ * decline anything, it deletes the game on the next launch, in silence, with
+ * nothing left to undo. Two stubborn players popping discs back out pass what
+ * a code may carry in 500 moves and keep every one of them; a game that
+ * branches often spends an action per waiting timeline and can reach this
+ * ceiling in a long evening, which is the case that must not end in a blank
+ * board and no explanation.
  * An oversized save cannot arrive by link either: decodeGame refuses the code
  * before it could be autosaved. What is left to pay is the replay - worst
- * case here, 1,500 actions rebuilding 2,473 boards, measured at 232 ms - and
- * the draw, which the map bounds by mounting only the boards near the
- * viewport.
+ * case here, 1,500 actions rebuilding 973 timelines and 2,473 boards,
+ * measured on desktop V8 at 0.4 s at best, 0.5-1.2 s on a typical cold run,
+ * retaining ~110 MB; Hermes on a phone is slower again - and the draw, which
+ * the map bounds by mounting only the boards near the viewport.
  */
 export const MAX_SAVED_ACTIONS = MAX_ACTIONS;
+
+/** A game read back out of storage. */
+export interface RestoredGame {
+  history: GameState[];
+  setup: GameSetup;
+  /**
+   * True when the save held more actions than MAX_SAVED_ACTIONS, so what came
+   * back is the game up to that move and the rest is gone. The screen says so
+   * rather than letting the difference pass as a game that never happened.
+   */
+  truncated: boolean;
+}
 
 export interface SavedGame {
   version: 3;
@@ -53,7 +72,7 @@ export function toSavedGame(history: GameState[], setup: GameSetup): SavedGame {
  * saves (which held whole states) are read by taking the action out of each
  * state and replaying it, so a game in flight survives the format change.
  */
-export function restoreSavedGame(value: unknown): { history: GameState[]; setup: GameSetup } | null {
+export function restoreSavedGame(value: unknown): RestoredGame | null {
   if (!value || typeof value !== 'object') return null;
   const saved = value as { version?: unknown; rules?: unknown; setup?: unknown; actions?: unknown; history?: unknown };
   const setup = cleanSetup(saved.setup);
@@ -80,14 +99,18 @@ function baseState(setup: GameSetup, rules: unknown): GameState | null {
   return newGame(cleanRules(rules));
 }
 
-function replay(
-  base: GameState | null,
-  actions: unknown,
-  setup: GameSetup,
-): { history: GameState[]; setup: GameSetup } | null {
-  if (!base || !Array.isArray(actions) || actions.length > MAX_SAVED_ACTIONS) return null;
+/**
+ * Replay a stored list onto its base position. At most MAX_SAVED_ACTIONS
+ * actions are replayed - the list is not walked past that either, so a stored
+ * value cannot ask for unbounded work - and a list longer than that comes
+ * back as the game up to there rather than as nothing at all.
+ */
+function replay(base: GameState | null, actions: unknown, setup: GameSetup): RestoredGame | null {
+  if (!base || !Array.isArray(actions)) return null;
+  const kept = Math.min(actions.length, MAX_SAVED_ACTIONS);
   const history: GameState[] = [base];
-  for (const action of actions) {
+  for (let i = 0; i < kept; i++) {
+    const action = actions[i];
     if (!isAction(action)) return null;
     try {
       history.push(applyAction(history[history.length - 1], action));
@@ -95,7 +118,7 @@ function replay(
       return null;
     }
   }
-  return { history, setup };
+  return { history, setup, truncated: kept < actions.length };
 }
 
 const isPlayer = (v: unknown): v is Player => v === 0 || v === 1;

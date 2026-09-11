@@ -1,5 +1,5 @@
 import { boardFromRows, cellAt, dropDisc, emptyBoard, findLines } from '../board';
-import { chooseAction } from '../bot';
+import { chooseAction, enumerateActions } from '../bot';
 import {
   Action,
   GameState,
@@ -573,5 +573,70 @@ describe('a travel that wins on the new timeline', () => {
     expect(after.status).toBe('won');
     expect(after.win!.player).toBe(0);
     expect(after.win!.board).toEqual({ timeline: 1, turn: 1 });
+  });
+});
+
+/**
+ * Timeline ids are the timelines' own positions in the array, and other code
+ * leans on it: the map chooses the rows it draws by slicing that array and
+ * then places each one at HEADER + tl.id * ROW, so a sparse or reordered id
+ * would draw a row in the wrong place or off the map entirely. Nothing said
+ * so anywhere, so nothing would have noticed it changing.
+ */
+describe('timeline ids', () => {
+  const dense = (state: GameState) => state.timelines.every((tl, i) => tl.id === i);
+
+  it('are the index of the timeline, after every action of every game', () => {
+    let seed = 7;
+    const rng = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    let travels = 0;
+    for (const popOut of [false, true]) {
+      for (const flip of [false, true]) {
+        for (const strictPresent of [false, true]) {
+          for (let game = 0; game < 4; game++) {
+            let state = newGame({ popOut, flip, strictPresent });
+            expect(dense(state)).toBe(true);
+            for (let move = 0; move < 50 && state.status === 'playing'; move++) {
+              // A random legal action rather than a chosen one: this is about
+              // the shapes a game can reach, not about playing it well.
+              const legal = enumerateActions(state, 3);
+              const action = legal[Math.floor(rng() * legal.length)];
+              if (!action) break;
+              state = applyAction(state, action);
+              if (action.type === 'travel') travels++;
+              // Checked on every state, not only at the end: an id that is
+              // wrong for one move draws one frame in the wrong place.
+              expect(dense(state)).toBe(true);
+              expect(state.timelines[state.timelines.length - 1].id).toBe(state.timelines.length - 1);
+            }
+          }
+        }
+      }
+    }
+    // The games really did branch, or this pins nothing at all.
+    expect(travels).toBeGreaterThan(10);
+  });
+
+  it('are never reused or renumbered as timelines are added', () => {
+    // A travel appends; nothing removes a timeline or renumbers one, so the
+    // id list only ever grows and only ever reads 0..n-1.
+    let state: GameState = newGame();
+    const lists: number[][] = [];
+    for (let move = 0; move < 60 && state.timelines.length < 4; move++) {
+      const legal = enumerateActions(state, 3);
+      const action = legal.find((a) => a.type === 'travel') ?? legal[0];
+      if (!action) break;
+      const next = applyAction(state, action);
+      if (next.status !== 'playing') break;
+      state = next;
+      lists.push(state.timelines.map((tl) => tl.id));
+    }
+    expect(state.timelines.length).toBeGreaterThanOrEqual(4);
+    for (const list of lists) expect(list).toEqual(list.map((_, i) => i));
+    const lengths = lists.map((l) => l.length);
+    expect(lengths).toEqual([...lengths].sort((a, b) => a - b));
   });
 });

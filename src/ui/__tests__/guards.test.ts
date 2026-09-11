@@ -93,6 +93,46 @@ describe('a game arriving by link', () => {
   });
 });
 
+describe('the code the screen offers', () => {
+  it('is the one the app would take back, asked for before the buttons are drawn', () => {
+    // encodeGame writes a code for any game at all, including one past what
+    // decodeGame will replay. Building the sheet's code with it left Copy and
+    // Share open on a game that could not be loaded, so the refusal landed on
+    // the recipient instead - who was told the sender's real game was fake.
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/shareCodeFor\(game\.history, game\.setup\)/);
+    expect(src).not.toMatch(/encodeGame\(/);
+    // Both the code and the reason there is none reach the sheet.
+    expect(src).toMatch(/code=\{share\.code\}/);
+    expect(src).toMatch(/problem=\{share\.problem\}/);
+    // And the link is built from the checked code, never from the raw game.
+    expect(src).toMatch(/link=\{share\.code \? webLinkFor\(share\.code\) : null\}/);
+  });
+});
+
+describe('a saved game that did not all come back', () => {
+  it('is said out loud, not replaced in silence', () => {
+    // App.tsx already knows the difference between nothing stored and stored
+    // but unusable, and it used to spend that knowledge on removeKey alone:
+    // the player was handed a new game at turn 0 with no word of the one they
+    // had. Both losses now reach the screen.
+    const app = source('../../App.tsx');
+    expect(app).toMatch(/if \(v && !restored\) \{/);
+    expect(app).toMatch(/setNotice\('The game that was saved could not be read/);
+    expect(app).toMatch(/restored\?\.truncated/);
+    expect(app).toMatch(/else if \(restored\?\.truncated\) \{\s*setNotice\(/);
+    expect(app).toMatch(/initialNotice=\{notice\}/);
+    // And the screen shows it where it shows everything else it has to say.
+    const screen = source('GameScreen.tsx');
+    expect(screen).toMatch(/notice \?\? hint/);
+    expect(screen).toMatch(/initialNotice && game\.history\.length === restoredLength\.current/);
+    // And a game already past that length is told before the next launch,
+    // not after it: the notice alone would repeat the loss every session.
+    expect(screen).toMatch(/const pastReload = game\.history\.length - 1 > MAX_SAVED_ACTIONS;/);
+    expect(screen).toMatch(/pastReload\s*\?/);
+  });
+});
+
 describe('cell labels', () => {
   const names: readonly [string, string] = ['Red', 'Yellow'];
 

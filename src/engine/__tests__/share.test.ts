@@ -1,7 +1,17 @@
 import { decode, encode } from '../../app/base64';
 import { codeFromUrl } from '../../app/links';
-import { MAX_ACTIONS, MAX_BOARDS, MAX_CODE_LENGTH, MAX_TIMELINES, decodeGame, encodeGame } from '../../app/share';
+import {
+  MAX_ACTIONS,
+  MAX_BOARDS,
+  MAX_CODE_LENGTH,
+  MAX_TIMELINES,
+  decodeGame,
+  encodeGame,
+  shareCodeFor,
+  stateLimit,
+} from '../../app/share';
 import { enumerateActions } from '../bot';
+import { GameSetup } from '../../app/setup';
 import { Action, GameState, IllegalAction, applyAction, newGame } from '../index';
 
 /** Wrap a payload exactly as a sender would, so the whole decode path runs. */
@@ -122,6 +132,16 @@ describe('hostile game codes', () => {
    * travel is legal, otherwise take whatever else is on offer. Every travel
    * adds a whole timeline, which is a row of thumbnails on the map.
    */
+  /** The first state in a replay that passes a cap, which is where decode stops. */
+  function firstStatePast(actions: Action[], past: (s: GameState) => boolean): GameState {
+    let state = newGame();
+    for (const action of actions) {
+      state = applyAction(state, action);
+      if (past(state)) return state;
+    }
+    throw new Error('this game never passes the cap');
+  }
+
   function branchingActions(count: number): Action[] {
     let state = newGame();
     const actions: Action[] = [];
@@ -148,29 +168,52 @@ describe('hostile game codes', () => {
     // Counted from the actions themselves, not from the cap they run into.
     const built = actions.reduce((s, a) => applyAction(s, a), newGame());
     expect(built.timelines.length).toBeGreaterThan(MAX_TIMELINES);
-    expect(() => decodeGame(code)).toThrow(/too long/);
+    // Replaying stops at the first state past the cap, so that is the one the
+    // message counts; both numbers come from replaying the actions here.
+    const refused = firstStatePast(actions, (s) => s.timelines.length > MAX_TIMELINES);
+    expect(() => decodeGame(code)).toThrow(new RegExp(`${refused.timelines.length} timelines`));
   });
 
-  it('refuses a code that builds more boards than a game has, though it is inside both caps', () => {
-    // One timeline, so the cap above cannot be what stops it: drop/drop/pop/
-    // pop returns the board to empty, and every action still leaves a board
-    // behind for the map to draw.
-    const cycle: Action[] = [];
-    while (cycle.length < MAX_BOARDS + 50) {
-      cycle.push(
-        { type: 'drop', timeline: 0, col: 0 },
-        { type: 'drop', timeline: 0, col: 1 },
-        { type: 'pop', timeline: 0, col: 0 },
-        { type: 'pop', timeline: 0, col: 1 },
-      );
+  it('says a game is too big for a code without saying it is not a game', () => {
+    // The refusal the recipient reads. A game of this size is perfectly real
+    // - the sender played it - and the length message ("too long to be a real
+    // game", for a code no game could produce) accuses them of faking it.
+    const actions = branchingActions(200);
+    const refused = firstStatePast(actions, (s) => s.timelines.length > MAX_TIMELINES);
+    let message = '';
+    try {
+      decodeGame(codeFor({ v: 1, r: {}, m: 'local', a: actions }));
+    } catch (e) {
+      message = (e as Error).message;
     }
-    const code = codeFor({ v: 1, r: { popOut: true }, m: 'local', a: cycle });
-    expect(cycle.length).toBeLessThanOrEqual(MAX_ACTIONS);
-    expect(code.length).toBeLessThanOrEqual(MAX_CODE_LENGTH);
-    const built = cycle.reduce((s, a) => applyAction(s, a), newGame({ popOut: true }));
-    expect(built.timelines.length).toBe(1);
-    expect(boardCount(built)).toBeGreaterThan(MAX_BOARDS);
-    expect(() => decodeGame(code)).toThrow(/too long/);
+    expect(message).toContain(`${refused.timelines.length} timelines`);
+    expect(message).toContain(`${MAX_TIMELINES}`);
+    expect(message).not.toMatch(/real game/);
+    // And the two refusals stay distinguishable, which is the point of it.
+    expect(() => decodeGame(`5DC4.${'A'.repeat(MAX_CODE_LENGTH + 1)}`)).toThrow(/real game/);
+  });
+
+  it('keeps the board cap above every game that can be played into a save', () => {
+    // A code may carry MAX_ACTIONS actions, and every action leaves at most
+    // one board behind plus one more when it opens a timeline, so inside the
+    // timeline cap no code can reach the board cap: it is a backstop, and it
+    // has to stay one, because the game it used to refuse (a pop-out game of
+    // a few hundred moves) is a game this app will happily save.
+    expect(MAX_BOARDS).toBeGreaterThanOrEqual(1 + MAX_ACTIONS + MAX_TIMELINES);
+    // The premise, measured on a played game rather than assumed.
+    const actions = branchingActions(200);
+    const built = actions.reduce((s, a) => applyAction(s, a), newGame());
+    expect(boardCount(built)).toBeLessThanOrEqual(1 + actions.length + (built.timelines.length - 1));
+    // The check itself still refuses a state past it, however it got there.
+    const board = newGame().timelines[0].boards[0];
+    const huge: GameState = {
+      ...newGame(),
+      timelines: [{ ...newGame().timelines[0], boards: Array.from({ length: MAX_BOARDS + 1 }, () => board) }],
+    };
+    expect(stateLimit(huge)).toEqual({ what: 'boards', count: MAX_BOARDS + 1, limit: MAX_BOARDS });
+    // And passes a game of the size people play, boards and timelines alike.
+    const ordinary = branchingActions(40).reduce((s, a) => applyAction(s, a), newGame());
+    expect(stateLimit(ordinary)).toBeNull();
   });
 
   it('still loads a game of the size people actually play', () => {
@@ -193,6 +236,93 @@ describe('hostile game codes', () => {
   it('survives a payload that is not an object', () => {
     for (const payload of [null, 5, 'x', [1, 2, 3]]) {
       expect(() => decodeGame(codeFor(payload))).toThrow(/version this app cannot read/);
+    }
+  });
+});
+
+/**
+ * The other end of the same limits. Everything decodeGame refuses, this app
+ * can also reach by playing - a saved game runs to MAX_SAVED_ACTIONS moves -
+ * so a code has to be refused where it is made too. Offering one that cannot
+ * be loaded back moves the failure onto the recipient's phone, where it reads
+ * as the sender's real game being called fake, and neither player is told
+ * which of them is at fault.
+ */
+describe('a code this app makes', () => {
+  const LOCAL: GameSetup = { mode: 'local' };
+  const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
+  const play = (actions: Action[], rules?: Parameters<typeof newGame>[0]): GameState[] =>
+    actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame(rules)]);
+
+  /** The game the save path is written for: two stubborn players, one timeline. */
+  function popOutGame(moves: number): GameState[] {
+    const actions: Action[] = [];
+    while (actions.length < moves) {
+      actions.push(drop(0), drop(1), { type: 'pop', timeline: 0, col: 0 }, { type: 'pop', timeline: 0, col: 1 });
+    }
+    return play(actions.slice(0, moves), { popOut: true, flip: false, strictPresent: false });
+  }
+
+  function branchingGame(actions: number): GameState[] {
+    const history: GameState[] = [newGame()];
+    while (history.length <= actions) {
+      const state = history[history.length - 1];
+      const legal = enumerateActions(state, 3);
+      const action = legal.find((a) => a.type === 'travel') ?? legal[0];
+      if (!action) break;
+      const next = applyAction(state, action);
+      if (next.status !== 'playing') break;
+      history.push(next);
+    }
+    return history;
+  }
+
+  it('carries the 500-move pop-out game, which is a game and not an attack', () => {
+    // 501 boards on one timeline. The app will save this game and draw it, so
+    // it must also be able to send it: a limit that refuses it here ends the
+    // game for both players, on the far phone, with no way to tell why.
+    const history = popOutGame(500);
+    const last = history[history.length - 1];
+    expect(last.timelines).toHaveLength(1);
+    expect(last.timelines[0].boards.length).toBe(501);
+
+    const { code, problem } = shareCodeFor(history, LOCAL);
+    expect(problem).toBeNull();
+    expect(code).not.toBeNull();
+    // And the recipient really can read what the sender was handed.
+    const loaded = decodeGame(code!);
+    expect(loaded.history[loaded.history.length - 1]).toEqual(last);
+  });
+
+  it('refuses to make a code the app itself would refuse to read', () => {
+    const history = branchingGame(200);
+    const last = history[history.length - 1];
+    expect(last.timelines.length).toBeGreaterThan(MAX_TIMELINES);
+
+    const { code, problem } = shareCodeFor(history, LOCAL);
+    expect(code).toBeNull();
+    expect(problem).toContain(`${last.timelines.length} timelines`);
+    expect(problem).toContain(`${MAX_TIMELINES}`);
+    // What used to be offered instead: a code that fails on the other phone.
+    expect(() => decodeGame(encodeGame(history, LOCAL))).toThrow();
+  });
+
+  it('refuses a game with more moves than a code carries', () => {
+    const history = popOutGame(MAX_ACTIONS + 4);
+    const { code, problem } = shareCodeFor(history, LOCAL);
+    expect(code).toBeNull();
+    expect(problem).toContain(`${history.length - 1} moves`);
+  });
+
+  it('hands back nothing it would not take back', () => {
+    // The property the two ends have to keep between them, over every shape
+    // of game to hand: a code that is offered is a code that loads.
+    for (const history of [popOutGame(4), popOutGame(500), branchingGame(40), branchingGame(200)]) {
+      const { code, problem } = shareCodeFor(history, LOCAL);
+      expect(code === null).toBe(problem !== null);
+      if (code) {
+        expect(decodeGame(code).history).toHaveLength(history.length);
+      }
     }
   });
 });

@@ -9,6 +9,12 @@ interface Props {
   visible: boolean;
   /** The current game as a code, or null when there is nothing to share yet. */
   code: string | null;
+  /**
+   * Why there is no code for a game that has one to make: a game past what a
+   * code may carry is refused here, where the sender can read it, rather than
+   * on the phone it is pasted into.
+   */
+  problem?: string | null;
   /** On the web, a link that opens this game directly. */
   link?: string | null;
   onLoad: (code: string) => string | null;
@@ -16,7 +22,7 @@ interface Props {
 }
 
 /** Share the game as a code and load one back: play by message, no server needed. */
-export function ShareModal({ visible, code, link, onLoad, onClose }: Props) {
+export function ShareModal({ visible, code, problem, link, onLoad, onClose }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [pasted, setPasted] = useState('');
@@ -62,9 +68,15 @@ export function ShareModal({ visible, code, link, onLoad, onClose }: Props) {
             travels with it.
           </Text>
           <ScrollView style={styles.codeBox} horizontal={false}>
-            <Text selectable style={styles.code}>
-              {code ?? 'Make a move first, then come back here.'}
-            </Text>
+            {code ? (
+              <Text selectable style={styles.code}>
+                {code}
+              </Text>
+            ) : (
+              <Text style={problem ? styles.problem : styles.code}>
+                {problem ?? 'Make a move first, then come back here.'}
+              </Text>
+            )}
           </ScrollView>
           <View style={styles.row}>
             <Button label="Copy" small onPress={copy} disabled={!code} />
@@ -113,5 +125,6 @@ const makeStyles = (colors: Theme) =>
       padding: spacing.sm,
       fontSize: 12,
     },
+    problem: { color: colors.danger, fontSize: 13, lineHeight: 18 },
     note: { color: colors.travel, fontSize: 12, marginTop: spacing.sm },
   });
