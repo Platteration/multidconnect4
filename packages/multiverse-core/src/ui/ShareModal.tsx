@@ -1,8 +1,9 @@
 import * as Clipboard from 'expo-clipboard';
 import React, { useMemo, useState } from 'react';
 import { Modal, Platform, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Button } from '@5d/core/ui';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   visible: boolean;
@@ -10,12 +11,14 @@ interface Props {
   code: string | null;
   /** On the web, a link that opens this game directly. */
   link?: string | null;
+  /** How this game's codes begin, e.g. "5DC4." — shown in the paste box. */
+  codePrefix: string;
   onLoad: (code: string) => string | null;
   onClose: () => void;
 }
 
 /** Share the game as a code and load one back: play by message, no server needed. */
-export function ShareModal({ visible, code, link, onLoad, onClose }: Props) {
+export function ShareModal({ visible, code, link, codePrefix, onLoad, onClose }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [pasted, setPasted] = useState('');
@@ -74,7 +77,7 @@ export function ShareModal({ visible, code, link, onLoad, onClose }: Props) {
           <TextInput
             value={pasted}
             onChangeText={setPasted}
-            placeholder="5DC4.…"
+            placeholder={`${codePrefix}…`}
             placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             autoCorrect={false}
@@ -92,7 +95,7 @@ export function ShareModal({ visible, code, link, onLoad, onClose }: Props) {
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
     sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

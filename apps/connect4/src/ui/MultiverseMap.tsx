@@ -91,7 +91,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
               key={turn}
               style={[
                 styles.turnLabel,
-                { left: (turn + 1) * SLOT, width: SLOT, color: colors.players[playerToMoveAt(turn)] },
+                { left: (turn + 1) * SLOT, width: SLOT, color: colors.playerAccent[playerToMoveAt(turn)] },
               ]}
             >
               t{turn}
@@ -104,13 +104,13 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
           const x = (tl.branchedFrom.turn + 1) * SLOT + MINI_WIDTH / 2;
           const top = HEADER + tl.branchedFrom.timeline * ROW + 8 + MINI_HEIGHT;
           const bottom = HEADER + tl.id * ROW + 8;
-          const color = tl.createdBy === null ? colors.textMuted : colors.players[tl.createdBy];
+          const color = tl.createdBy === null ? colors.textMuted : colors.playerAccent[tl.createdBy];
           return (
             <View key={`link-${tl.id}`} pointerEvents="none" style={[styles.link, { left: x - 1, top, height: Math.max(0, bottom - top), backgroundColor: color }]} />
           );
         })}
         {state.timelines.map((tl) => {
-          const labelColor = tl.createdBy === null ? colors.textMuted : colors.players[tl.createdBy];
+          const labelColor = tl.createdBy === null ? colors.textMuted : colors.playerAccent[tl.createdBy];
           return (
             <View key={tl.id} style={[styles.timelineRow, { width }]}>
               <View style={[styles.label, { left: tl.startTurn * SLOT, borderColor: labelColor }]}>
@@ -144,7 +144,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
                   ring = colors.travel;
                   badge = 'GO';
                 } else if (isPending) {
-                  ring = colors.players[state.toMove];
+                  ring = colors.playerAccent[state.toMove];
                   badge = holding ? null : mandatoryIds.has(tl.id) ? 'play' : 'later';
                 } else if (isNew) {
                   badge = 'new';

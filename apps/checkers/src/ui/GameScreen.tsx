@@ -24,19 +24,16 @@ import {
   timelineLabel,
 } from '../engine';
 import { codeFromUrl, keys, removeKey, saveJson, setHapticsEnabled, setSoundEnabled, useEntitlements, useProgress, useSettings, webLinkFor } from '@5d/core/app';
+import { GameSetup } from '@5d/core';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { decodeGame, encodeGame } from '../app/share';
-import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { CheckerBoard, Destination } from './CheckerBoard';
-import { Button, ExtrasModal, MenuModal, PuzzleResultModal, PuzzlesModal, ReplayBar, StatsModal, WelcomeModal } from '@5d/core/ui';
-import { NewGameModal } from './NewGameModal';
+import { Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal } from '@5d/core/ui';
 import { MiniBoard } from './MiniBoard';
-import { ShareModal } from './ShareModal';
 import { GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
-import { Row, Section, SettingsModal } from './SettingsModal';
 import { PIECE_SETS, radius, SKINS, spacing, Theme, useTheme } from './theme';
 import { useGame } from './useGame';
 
@@ -408,6 +405,11 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       />
       <NewGameModal
         visible={newGameOpen}
+        levelHints={{
+          1: 'Takes what it must, loves a crown, otherwise wanders. Never travels.',
+          2: 'Counts material after your best reply and keeps pushing forward.',
+          3: 'Travels through time when a past board looks better. Expect branches.',
+        }}
         initial={game.setup}
         onClose={() => setNewGameOpen(false)}
         onStart={(setup) => {
@@ -433,6 +435,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       />
       <ShareModal
         visible={shareOpen}
+        codePrefix="5DCK."
         code={shareCode}
         onClose={() => setShareOpen(false)}
         link={shareCode ? webLinkFor(shareCode) : null}
@@ -442,7 +445,13 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           return problem;
         }}
       />
-      <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
+      <SettingsModal
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        vibrationHint="A tick when you pick up, a thud when you capture."
+        skins={SKINS.map((s) => ({ id: s.id, name: s.name, premium: s.premium, swatch: [s.squareLight, s.squareDark] as const }))}
+        pieceSets={PIECE_SETS.map((p) => ({ id: p.id, name: p.name, premium: p.premium, swatch: p.colors }))}
+      >
         <Section title="Variants (apply to new games)">
           <Row label="Flying kings" hint="Kings slide any distance and land anywhere beyond a capture.">
             <Switch value={!!settings.variants.flyingKings} onValueChange={(v) => setVariant('flyingKings', v)} />

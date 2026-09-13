@@ -1,26 +1,25 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
-import { GameSetup } from '../app/setup';
-import { BOT_NAMES, BotLevel, Player } from '../engine';
-import { Button } from '@5d/core/ui';
+import type { GameSetup } from '../setup';
+import { BOT_NAMES, type BotLevel } from '../bot';
+import type { Player } from '../types';
+import { Button } from './Button';
 import { Choice } from './SettingsModal';
-import { radius, spacing, Theme, useTheme } from './theme';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
 
 interface Props {
   visible: boolean;
+  /** One line per bot level describing how that opponent plays, in this game. */
+  levelHints: Record<BotLevel, string>;
   initial: GameSetup;
   onStart: (setup: GameSetup) => void;
   onClose: () => void;
 }
 
-const LEVEL_HINTS: Record<BotLevel, string> = {
-  1: 'Plays discs, takes wins, usually blocks. Never travels.',
-  2: 'Blocks everything it sees and likes the centre. Spins the board.',
-  3: 'Travels through time when it pays. Expect branches.',
-};
 
 /** Choose who plays: two people on one phone, or you against a bot. */
-export function NewGameModal({ visible, initial, onStart, onClose }: Props) {
+export function NewGameModal({ visible, initial, levelHints, onStart, onClose }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [mode, setMode] = useState<GameSetup['mode']>(initial.mode);
@@ -54,7 +53,7 @@ export function NewGameModal({ visible, initial, onStart, onClose }: Props) {
                 options={([1, 2, 3] as BotLevel[]).map((l) => ({ id: `${l}` as `${BotLevel}`, label: BOT_NAMES[l] }))}
                 onChange={(v) => setLevel(Number(v) as BotLevel)}
               />
-              <Text style={styles.hint}>{LEVEL_HINTS[level]}</Text>
+              <Text style={styles.hint}>{levelHints[level]}</Text>
               <View style={{ height: spacing.md }} />
               <Text style={styles.label}>You play</Text>
               <Choice<'0' | '1'>
@@ -77,7 +76,7 @@ export function NewGameModal({ visible, initial, onStart, onClose }: Props) {
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
     sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

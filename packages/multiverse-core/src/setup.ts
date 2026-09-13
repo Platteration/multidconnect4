@@ -1,4 +1,5 @@
-import type { Bot, GameState, Player } from '../engine';
+import type { Bot } from './bot';
+import type { Player } from './types';
 
 /**
  * How a game is being played: two people sharing the phone, one person
@@ -16,17 +17,24 @@ export interface GameSetup {
 
 export const DEFAULT_SETUP: GameSetup = { mode: 'local' };
 
-export interface SavedGame {
+/**
+ * A game on disk. The states are the game's own, so this is generic over
+ * them: the core never needs to look inside one.
+ */
+export interface SavedGame<S> {
   version: 2;
-  history: GameState[];
+  history: S[];
   setup: GameSetup;
 }
 
-export function looksLikeSavedGame(v: unknown): v is SavedGame | { version: 1; history: GameState[] } {
+/** Version 1 predates the setup field, so a saved game from then is local play. */
+type SavedGameV1<S> = { version: 1; history: S[] };
+
+export function looksLikeSavedGame<S>(v: unknown): v is SavedGame<S> | SavedGameV1<S> {
   const s = v as { version?: number; history?: unknown };
   return !!s && (s.version === 1 || s.version === 2) && Array.isArray(s.history) && s.history.length > 0;
 }
 
-export function normaliseSaved(v: SavedGame | { version: 1; history: GameState[] }): { history: GameState[]; setup: GameSetup } {
+export function normaliseSaved<S>(v: SavedGame<S> | SavedGameV1<S>): { history: S[]; setup: GameSetup } {
   return { history: v.history, setup: 'setup' in v ? v.setup : DEFAULT_SETUP };
 }

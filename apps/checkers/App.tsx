@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { EntitlementsProvider, keys, loadJson, ProgressProvider, SettingsProvider, useSettings } from '@5d/core/app';
+import { GameSetup, looksLikeSavedGame, normaliseSaved } from '@5d/core';
 import { StatsProvider } from './src/app/stats';
-import { GameSetup, looksLikeSavedGame, normaliseSaved } from './src/app/setup';
 import { ThemeProvider } from '@5d/core/ui';
 import { buildTheme, useTheme } from './src/ui/theme';
 import type { GameState } from './src/engine';
@@ -18,7 +18,7 @@ function Root() {
   const [saved, setSaved] = useState<Saved | null | undefined>(undefined);
 
   useEffect(() => {
-    loadJson<unknown>(keys.game).then((v) => setSaved(looksLikeSavedGame(v) ? normaliseSaved(v) : null));
+    loadJson<unknown>(keys.game).then((v) => setSaved(looksLikeSavedGame<GameState>(v) ? normaliseSaved(v) : null));
   }, []);
 
   if (!ready || saved === undefined) {

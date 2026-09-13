@@ -12,3 +12,6 @@ export * from './PuzzlesModal';
 export * from './StatsModal';
 export * from './ExtrasModal';
 export * from './WelcomeModal';
+export * from './ShareModal';
+export * from './NewGameModal';
+export * from './SettingsModal';

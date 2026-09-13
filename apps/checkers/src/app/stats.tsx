@@ -1,8 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { EMPTY_STATS, type Stats } from '@5d/core';
+import { EMPTY_STATS, GameSetup, type Stats } from '@5d/core';
 import type { GameState, Player } from '../engine';
 import { loadJson, saveJson } from '@5d/core/app';
-import type { GameSetup } from './setup';
 
 const KEY = 'stats.v1';
 

@@ -1,17 +1,32 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { ThemeChoice, useEntitlements, useSettings } from '@5d/core/app';
-import { Button } from '@5d/core/ui';
-import { PIECE_SETS, radius, SKINS, spacing, Theme, useTheme } from './theme';
+import { useEntitlements } from '../app/entitlements';
+import { type ThemeChoice, useSettings } from '../app/settings';
+import { Button } from './Button';
+import { CoreTheme, radius, spacing } from './theme';
+import { useTheme } from './ThemeProvider';
+
+/** A board skin or piece set as the settings sheet needs to show it. */
+export interface CosmeticOption {
+  id: string;
+  name: string;
+  premium: boolean;
+  /** Two colours shown as dots beside the name. */
+  swatch: readonly [string, string];
+}
 
 interface Props {
   visible: boolean;
   onClose: () => void;
+  /** What vibration feels like in this game. */
+  vibrationHint: string;
+  skins: readonly CosmeticOption[];
+  pieceSets: readonly CosmeticOption[];
   /** Game-specific rows rendered under the general ones. */
   children?: React.ReactNode;
 }
 
-export function SettingsModal({ visible, onClose, children }: Props) {
+export function SettingsModal({ visible, onClose, vibrationHint, skins, pieceSets, children }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, update } = useSettings();
@@ -24,7 +39,7 @@ export function SettingsModal({ visible, onClose, children }: Props) {
           <Text style={styles.title}>Settings</Text>
           <ScrollView style={{ maxHeight: 460 }}>
             <Section title="Feel">
-              <Row label="Vibration" hint="A tick when you place, a thud when things fall.">
+              <Row label="Vibration" hint={vibrationHint}>
                 <Switch value={settings.haptics} onValueChange={(v) => update({ haptics: v })} />
               </Row>
               <Row label="Sound" hint="Short clicks and whooshes.">
@@ -51,15 +66,15 @@ export function SettingsModal({ visible, onClose, children }: Props) {
               <Text style={styles.label}>Board</Text>
               <Choice
                 value={settings.skin}
-                options={SKINS.map((s) => ({ id: s.id, label: s.premium && !owns(true) ? `✦ ${s.name}` : s.name, swatch: [s.board, s.boardDark] as const }))}
-                onChange={(v) => (owns(!!SKINS.find((s) => s.id === v)?.premium) ? update({ skin: v }) : setLocked(v))}
+                options={skins.map((s) => ({ id: s.id, label: s.premium && !owns(true) ? `✦ ${s.name}` : s.name, swatch: s.swatch }))}
+                onChange={(v) => (owns(!!skins.find((s) => s.id === v)?.premium) ? update({ skin: v }) : setLocked(v))}
               />
               <View style={{ height: spacing.sm }} />
               <Text style={styles.label}>Pieces</Text>
               <Choice
                 value={settings.pieces}
-                options={PIECE_SETS.map((p) => ({ id: p.id, label: p.premium && !owns(true) ? `✦ ${p.name}` : p.name, swatch: p.colors }))}
-                onChange={(v) => (owns(!!PIECE_SETS.find((p) => p.id === v)?.premium) ? update({ pieces: v }) : setLocked(v))}
+                options={pieceSets.map((p) => ({ id: p.id, label: p.premium && !owns(true) ? `✦ ${p.name}` : p.name, swatch: p.swatch }))}
+                onChange={(v) => (owns(!!pieceSets.find((p) => p.id === v)?.premium) ? update({ pieces: v }) : setLocked(v))}
               />
               {locked ? <Text style={styles.hint}>✦ items come with the Supporter pack (see Extras in the menu).</Text> : null}
             </Section>
@@ -133,7 +148,7 @@ export function Choice<T extends string>({ value, options, onChange }: { value: 
   );
 }
 
-const makeStyles = (colors: Theme) =>
+const makeStyles = (colors: CoreTheme) =>
   StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
   sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },

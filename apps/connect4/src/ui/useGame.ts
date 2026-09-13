@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import * as feedback from '@5d/core/app';
-import { DEFAULT_SETUP, GameSetup } from '../app/setup';
+import { DEFAULT_SETUP, GameSetup } from '@5d/core';
 import { Puzzle, puzzleById } from '../puzzles';
 import {
   Action,
