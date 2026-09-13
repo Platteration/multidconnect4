@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Action,
@@ -23,14 +23,14 @@ import {
   sameRef,
   timelineLabel,
 } from '../engine';
-import { codeFromUrl, keys, removeKey, saveJson, setHapticsEnabled, setSoundEnabled, useEntitlements, useProgress, useSettings, webLinkFor } from '@5d/core/app';
+import { useEntitlements, useSettings, webLinkFor } from '@5d/core/app';
 import { GameSetup } from '@5d/core';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { decodeGame, encodeGame } from '../app/share';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { CheckerBoard, Destination } from './CheckerBoard';
-import { Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal } from '@5d/core/ui';
+import { Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal, useGameShell } from '@5d/core/ui';
 import { MiniBoard } from './MiniBoard';
 import { GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
@@ -49,7 +49,6 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const { settings, setVariant, update: updateSettings } = useSettings();
   const { recordGame, stats } = useStats();
   const { entitlements } = useEntitlements();
-  const [statsOpen, setStatsOpen] = useState(false);
   const rules = useMemo(
     () => ({
       flyingKings: !!settings.variants.flyingKings,
@@ -60,51 +59,24 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   );
   const game = useGame(initialHistory, rules, initialSetup);
   const { selection, targets } = game;
-  // Replay: look at any earlier state read-only, without touching the live game.
-  const [replayIndex, setReplayIndex] = useState<number | null>(null);
-  const replaying = replayIndex !== null && replayIndex < game.history.length;
-  const state = replaying ? game.history[replayIndex] : game.state;
-  const focus = replaying ? (state.lastCreated[0] ?? { timeline: 0, turn: 0 }) : game.focus;
-  const humanTurn = game.humanTurn && !replaying;
-  const [shareOpen, setShareOpen] = useState(false);
-  const [extrasOpen, setExtrasOpen] = useState(false);
-
-  // Fold each finished game (not puzzles) into the record, once.
-  const recordedRef = useRef<GameState | null>(null);
-  useEffect(() => {
-    const live = game.state;
-    if (live.status === 'playing' || game.setup.mode === 'puzzle' || recordedRef.current === live) return;
-    recordedRef.current = live;
-    recordGame(game.history, game.setup);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game.state.status]);
-
-  // A game code arriving by link (cold start or while running) loads the game.
-  const loadCode = (code: string): string | null => {
-    try {
-      const loaded = decodeGame(code);
-      game.load(loaded.history, loaded.setup);
-      setReplayIndex(null);
-      return null;
-    } catch (e) {
-      return e instanceof Error ? e.message : String(e);
-    }
-  };
-  const loadCodeRef = useRef(loadCode);
-  loadCodeRef.current = loadCode;
-  useEffect(() => {
-    Linking.getInitialURL()
-      .then((url) => {
-        const code = codeFromUrl(url);
-        if (code) loadCodeRef.current(code);
-      })
-      .catch(() => {});
-    const sub = Linking.addEventListener('url', ({ url }) => {
-      const code = codeFromUrl(url);
-      if (code) loadCodeRef.current(code);
-    });
-    return () => sub.remove();
-  }, []);
+  const shell = useGameShell({
+    game,
+    puzzles: PUZZLES,
+    puzzleById,
+    isSurvival: (p) => p.goal === 'survive',
+    decodeGame,
+    encodeGame,
+    chooseAction,
+    recordGame,
+    board: { cells: SIZE, portrait: 0.42, landscape: 0.7, min: 24, max: 52 },
+  });
+  const { state, focus, humanTurn, replayIndex, setReplayIndex, replaying, shareCode, loadCode } = shell;
+  const { bot, puzzle, puzzleIndex, survive, puzzleSolved, puzzleFailed } = shell;
+  const { Left, landscape, cellSize } = shell;
+  const { showHint, setShowHint, resultDismissed, setResultDismissed, gameOverDismissed, setGameOverDismissed } = shell;
+  const { menuOpen, setMenuOpen, newGameOpen, setNewGameOpen, puzzlesOpen, setPuzzlesOpen } = shell;
+  const { rulesOpen, setRulesOpen, settingsOpen, setSettingsOpen, statsOpen, setStatsOpen } = shell;
+  const { shareOpen, setShareOpen, extrasOpen, setExtrasOpen } = shell;
 
   // A tiny multiverse for the welcome pages: four moves, then a travel.
   const welcomeDemo = useMemo(() => {
@@ -149,80 +121,6 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     ],
     [welcomeDemo, colors],
   );
-  const shareCode = useMemo(
-    () => (game.history.length > 1 && game.setup.mode !== 'puzzle' ? encodeGame(game.history, game.setup) : null),
-    [game.history, game.setup],
-  );
-  const { width, height } = useWindowDimensions();
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [newGameOpen, setNewGameOpen] = useState(false);
-  const [puzzlesOpen, setPuzzlesOpen] = useState(false);
-  const [showHint, setShowHint] = useState(false);
-  const [resultDismissed, setResultDismissed] = useState(false);
-  const { markSolved } = useProgress();
-  const [gameOverDismissed, setGameOverDismissed] = useState(false);
-
-  useEffect(() => setHapticsEnabled(settings.haptics), [settings.haptics]);
-  useEffect(() => setSoundEnabled(settings.sound), [settings.sound]);
-
-  // Save the game whenever it changes, a moment after the last change.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (game.history.length > 1) void saveJson(keys.game, { version: 2, history: game.history, setup: game.setup });
-      else void removeKey(keys.game);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [game.history, game.setup]);
-
-  // The bot's turn: one action at a time, with a beat between them so the
-  // person can follow what is happening across the boards.
-  const bot = game.setup.bot;
-  const puzzle = game.setup.mode === 'puzzle' && game.setup.puzzleId ? puzzleById(game.setup.puzzleId) : undefined;
-  const puzzleIndex = puzzle ? PUZZLES.findIndex((p) => p.id === puzzle.id) : -1;
-  const survive = puzzle?.goal === 'survive';
-  const puzzleSolved =
-    !!puzzle &&
-    (survive
-      ? state.status === 'playing' && humanTurn && game.movesUsed >= puzzle.within
-      : state.status === 'won' && state.win?.player === puzzle.player);
-  const puzzleFailed =
-    !!puzzle &&
-    !puzzleSolved &&
-    (state.status !== 'playing' || (!survive && humanTurn && game.movesUsed >= puzzle.within));
-  useEffect(() => {
-    if (puzzleSolved && puzzle) markSolved(puzzle.id);
-  }, [puzzleSolved, puzzle, markSolved]);
-  useEffect(() => {
-    setResultDismissed(false);
-    setShowHint(false);
-  }, [game.setup.puzzleId, game.history.length === 1]);
-  useEffect(() => {
-    if (!bot || humanTurn || state.status !== 'playing') return;
-    const timer = setTimeout(() => {
-      const action = chooseAction(state, bot.level);
-      if (action) game.play(action);
-    }, 600);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, bot, humanTurn]);
-
-  useEffect(() => {
-    if (state.status === 'playing') setGameOverDismissed(false);
-  }, [state.status]);
-
-  // Wide screens (tablets, phones on their side) put the map beside the board.
-  const landscape = width > height * 1.15;
-  // On a short wide screen the board column scrolls so the hint stays reachable.
-  const Left = landscape ? ScrollView : View;
-  const cellSize = useMemo(() => {
-    const usable = landscape ? width * 0.5 - spacing.lg * 2 : width - spacing.lg * 2;
-    const byWidth = Math.floor(usable / SIZE);
-    const byHeight = Math.floor((height * (landscape ? 0.7 : 0.42)) / SIZE);
-    return Math.max(24, Math.min(52, byWidth, byHeight));
-  }, [width, height, landscape]);
-
   const board = getBoard(state, focus) ?? state.timelines[0].boards[0];
   const timeline = getTimeline(state, focus.timeline);
   const focusIsPending = isPending(state, focus);
@@ -330,7 +228,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
 
       {replaying ? (
         <ReplayBar
-          index={replayIndex}
+          index={replayIndex ?? 0}
           count={game.history.length}
           narration={narrate(state, colors.playerNames)}
           onSeek={setReplayIndex}
