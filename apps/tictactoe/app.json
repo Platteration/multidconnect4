@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "5D Tic-Tac-Toe",
+    "slug": "multidtictactoe",
+    "version": "1.0.0",
+    "scheme": "multidtictactoe",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0d0f1f",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.platteration.multidtictactoe"
+    },
+    "android": {
+      "package": "com.platteration.multidtictactoe",
+      "adaptiveIcon": {
+        "backgroundColor": "#0d0f1f",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    }
+  }
+}
