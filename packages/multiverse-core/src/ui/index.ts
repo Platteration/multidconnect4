@@ -15,3 +15,4 @@ export * from './WelcomeModal';
 export * from './ShareModal';
 export * from './NewGameModal';
 export * from './SettingsModal';
+export * from './MultiverseMap';
