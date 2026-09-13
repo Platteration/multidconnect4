@@ -398,3 +398,43 @@ export class Multiverse<G extends GameSpec> {
     return this.game.onTurnPassed?.(flipped) ?? flipped;
   }
 }
+
+/**
+ * The multiverse as loose functions bound to one adapter, so a game can
+ * publish its own engine API without hand-writing a wrapper per method:
+ *
+ * ```ts
+ * export const { newGame, applyAction, pendingTimelines } = bindMultiverse(adapter);
+ * ```
+ */
+export function bindMultiverse<G extends GameSpec>(adapter: GameAdapter<G>) {
+  const mv = new Multiverse(adapter);
+  return {
+    multiverse: mv,
+    // The plain readers are bound too. They are generic over the whole spec,
+    // which TypeScript cannot infer from a `GameState<G>` argument alone, so
+    // binding them here is what keeps them properly typed for a game.
+    timelineLabel,
+    latestTurn: (tl: Timeline<G['board']>) => latestTurn(tl),
+    latestBoard: (tl: Timeline<G['board']>) => latestBoard(tl),
+    latestRef: (tl: Timeline<G['board']>) => latestRef(tl),
+    getTimeline: (state: GameState<G>, id: number) => getTimeline<G>(state, id),
+    getBoard: (state: GameState<G>, ref: BoardRef) => getBoard<G>(state, ref),
+    isLatest: (state: GameState<G>, ref: BoardRef) => isLatest<G>(state, ref),
+    maxTurn: (state: GameState<G>) => maxTurn<G>(state),
+    allBoards: (state: GameState<G>) => allBoards<G>(state),
+    newGame: (rules: Partial<G['rules']> = {}): GameState<G> => mv.newGame(rules),
+    applyAction: (state: GameState<G>, action: G['action']): GameState<G> => mv.applyAction(state, action),
+    resolveTurn: (state: GameState<G>): GameState<G> => mv.resolveTurn(state),
+    pendingTimelines: (state: GameState<G>) => mv.pendingTimelines(state),
+    mandatoryTimelines: (state: GameState<G>) => mv.mandatoryTimelines(state),
+    optionalTimelines: (state: GameState<G>) => mv.optionalTimelines(state),
+    presentTurn: (state: GameState<G>) => mv.presentTurn(state),
+    canEndTurn: (state: GameState<G>) => mv.canEndTurn(state),
+    isPending: (state: GameState<G>, ref: BoardRef) => mv.isPending(state, ref),
+    travelTargets: (state: GameState<G>, fromTimeline: number, traveller?: G['traveller']) =>
+      mv.travelTargets(state, fromTimeline, traveller),
+    isTravelTarget: (state: GameState<G>, fromTimeline: number, ref: BoardRef, traveller?: G['traveller']) =>
+      mv.isTravelTarget(state, fromTimeline, ref, traveller),
+  };
+}

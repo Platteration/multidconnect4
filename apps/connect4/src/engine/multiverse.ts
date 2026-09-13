@@ -26,7 +26,7 @@ import {
   GameAdapter,
   GameSpec,
   IllegalAction,
-  Multiverse,
+  bindMultiverse,
   Player,
   ReadAction,
   Timeline as CoreTimeline,
@@ -169,74 +169,39 @@ const adapter: GameAdapter<Spec> = {
   },
 
   /** Every board full with nobody connected is a draw. */
-  onTurnPassed: (state) =>
-    multiverse.pendingTimelines(state).length === 0 ? { ...state, status: 'draw' } : null,
+  onTurnPassed: (state) => (bound.pendingTimelines(state).length === 0 ? { ...state, status: 'draw' } : null),
 };
 
-const multiverse = new Multiverse(adapter);
+const bound = bindMultiverse(adapter);
 
-export function newGame(rules: Partial<Rules> = {}): GameState {
-  return multiverse.newGame(rules);
-}
-
-export function timelineLabel(id: number): string {
-  return `Timeline ${id + 1}`;
-}
-
-export const getTimeline = (state: GameState, id: number): Timeline => {
-  const tl = state.timelines[id];
-  if (!tl) throw new Error(`no timeline ${id}`);
-  return tl;
-};
-
-export const latestTurn = (tl: Timeline): number => tl.startTurn + tl.boards.length - 1;
-export const latestBoard = (tl: Timeline): Board => tl.boards[tl.boards.length - 1];
-export const latestRef = (tl: Timeline): BoardRef => ({ timeline: tl.id, turn: latestTurn(tl) });
-
-export function getBoard(state: GameState, ref: BoardRef): Board | undefined {
-  const tl = state.timelines[ref.timeline];
-  return tl?.boards[ref.turn - tl.startTurn];
-}
-
-export const isLatest = (state: GameState, ref: BoardRef): boolean => {
-  const tl = state.timelines[ref.timeline];
-  return !!tl && latestTurn(tl) === ref.turn;
-};
-
-/** Every board in the multiverse, in timeline order. */
-export function allBoards(state: GameState): Array<{ ref: BoardRef; board: Board }> {
-  const out: Array<{ ref: BoardRef; board: Board }> = [];
-  for (const tl of state.timelines) {
-    tl.boards.forEach((board, i) => out.push({ ref: { timeline: tl.id, turn: tl.startTurn + i }, board }));
-  }
-  return out;
-}
-
-/** The latest turn index anywhere in the multiverse. */
-export const maxTurn = (state: GameState): number => Math.max(...state.timelines.map(latestTurn));
-
-export const pendingTimelines = (state: GameState): Timeline[] => multiverse.pendingTimelines(state);
-export const presentTurn = (state: GameState): number => multiverse.presentTurn(state);
-export const mandatoryTimelines = (state: GameState): Timeline[] => multiverse.mandatoryTimelines(state);
-export const optionalTimelines = (state: GameState): Timeline[] => multiverse.optionalTimelines(state);
-export const canEndTurn = (state: GameState): boolean => multiverse.canEndTurn(state);
-export const isPending = (state: GameState, ref: BoardRef): boolean => multiverse.isPending(state, ref);
-
-export const travelTargets = (state: GameState, fromTimeline: number): BoardRef[] =>
-  multiverse.travelTargets(state, fromTimeline);
-
-export const isTravelTarget = (state: GameState, fromTimeline: number, ref: BoardRef): boolean =>
-  multiverse.isTravelTarget(state, fromTimeline, ref);
+export const {
+  multiverse,
+  timelineLabel,
+  latestTurn,
+  latestBoard,
+  latestRef,
+  getTimeline,
+  getBoard,
+  isLatest,
+  maxTurn,
+  allBoards,
+  newGame,
+  applyAction,
+  resolveTurn,
+  pendingTimelines,
+  mandatoryTimelines,
+  optionalTimelines,
+  presentTurn,
+  canEndTurn,
+  isPending,
+  travelTargets,
+  isTravelTarget,
+} = bound;
 
 /** Whether the newest board of a timeline may be spun right now. */
 export function canRotate(state: GameState, timeline: number): boolean {
   const tl = state.timelines[timeline];
   if (!tl || !pendingTimelines(state).some((p) => p.id === timeline)) return false;
-  const board = latestBoard(tl);
+  const board = tl.boards[tl.boards.length - 1];
   return !board.spun && board.cells.some((c) => c !== null);
 }
-
-export const applyAction = (state: GameState, action: Action): GameState =>
-  multiverse.applyAction(state, action);
-
-export const resolveTurn = (state: GameState): GameState => multiverse.resolveTurn(state);
