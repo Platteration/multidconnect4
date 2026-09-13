@@ -7,24 +7,27 @@
  *  1 "Novice"  - plays discs only, takes wins, usually blocks, otherwise wanders.
  *  2 "Tricky"  - drops and spins, always blocks, values threats and the centre.
  *  3 "Paradox" - the above plus time travel, pop-out and flip when they pay.
+ *
+ * The loop around all of this is `bindBot` in the core; what is here is the
+ * part that knows what a Connect Four board is worth.
  */
-import { Board, discsOf, findLines, index, isFull, legalColumns } from './board';
+import { BotBrain, bindBot } from '@5d/core';
+import { Board, discsOf, findLines, index, legalColumns } from './board';
 import {
   Action,
   GameState,
+  Spec,
   applyAction,
-  canEndTurn,
   canRotate,
+  engine,
   latestBoard,
-  mandatoryTimelines,
   pendingTimelines,
   travelTargets,
 } from './multiverse';
-import { Bot, BotLevel, Player, Rng, otherPlayer } from './types';
-
+import { BotLevel, Player, Rng, otherPlayer } from './types';
 
 /** Every legal action for the player to move, across all waiting boards. */
-export function enumerateActions(state: GameState, level: BotLevel): Action[] {
+function enumerate(state: GameState, level: BotLevel): Action[] {
   const out: Action[] = [];
   for (const tl of pendingTimelines(state)) {
     const board = latestBoard(tl);
@@ -53,7 +56,7 @@ export function enumerateActions(state: GameState, level: BotLevel): Action[] {
 }
 
 /** Number of empty cells that would complete four in a row for `player`, plus a small centre bonus. */
-export function boardScore(board: Board, player: Player): number {
+function score(board: Board, player: Player): number {
   let score = 0;
   const dirs: ReadonlyArray<readonly [number, number]> = [[0, 1], [1, 0], [1, 1], [1, -1]];
   const centre = (board.cols - 1) / 2;
@@ -86,20 +89,6 @@ export function boardScore(board: Board, player: Player): number {
     }
   }
   return score;
-}
-
-/** How good the multiverse looks for `player`: sum over every newest board. */
-export function evaluate(state: GameState, player: Player): number {
-  if (state.status === 'won' && state.win) return state.win.player === player ? 1e6 : -1e6;
-  if (state.status === 'draw') return 0;
-  let total = 0;
-  for (const tl of state.timelines) {
-    const board = latestBoard(tl);
-    if (isFull(board)) continue;
-    total += boardScore(board, player) - boardScore(board, otherPlayer(player));
-  }
-  // Each extra board the opponent must answer is a small burden on them.
-  return total;
 }
 
 function opponentCanWinAtOnce(state: GameState): boolean {
@@ -166,78 +155,27 @@ function firstEmptyRow(board: Board, col: number): number {
   return -1;
 }
 
-/** Pick one action for the player to move. Returns null when nothing is legal. */
-/** Above this many candidates, time travels are sampled so a big multiverse stays snappy. */
-const MAX_CANDIDATES = 90;
+const brain: BotBrain<Spec> = {
+  enumerate,
+  boardScore: score,
+  endTurn: { type: 'endTurn' },
+  /** Above this many candidates, time travels are sampled so a big multiverse stays snappy. */
+  maxCandidates: 90,
+  isTravel: (a) => a.type === 'travel',
+  /** Time travel and pop-out reshape the present; only worth it with a real gain. */
+  actionCost: (a) => (a.type === 'travel' || a.type === 'pop' ? 4 : 0),
 
-export function chooseAction(state: GameState, level: BotLevel, rng: Rng = Math.random): Action | null {
-  const me = state.toMove;
-  // Under the strict-present rule, bots play what they must and leave the rest for later.
-  if (canEndTurn(state) && mandatoryTimelines(state).length === 0) return { type: 'endTurn' };
-  let actions = enumerateActions(state, level);
-  if (actions.length === 0) return null;
-  if (actions.length > MAX_CANDIDATES) {
-    const plain = actions.filter((a) => a.type !== 'travel');
-    const travels = actions.filter((a) => a.type === 'travel');
-    for (let i = travels.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [travels[i], travels[j]] = [travels[j], travels[i]];
-    }
-    actions = [...plain, ...travels.slice(0, Math.max(0, MAX_CANDIDATES - plain.length))];
-  }
-
-  // Immediate wins first, at every level.
-  for (const a of actions) {
-    const next = applyAction(state, a);
-    if (next.status === 'won' && next.win?.player === me) return a;
-  }
-
-  if (level === 1) {
-    // Block a threat most of the time, otherwise play something random.
+  /** Block a threat most of the time, otherwise play something random. */
+  novice(state: GameState, actions: Action[], rng: Rng) {
+    const me = state.toMove;
     const blocks = actions.filter((a) => isBlock(state, a, me));
     if (blocks.length && rng() < 0.75) return blocks[Math.floor(rng() * blocks.length)];
     const drops = actions.filter((a) => a.type === 'drop');
-    return drops[Math.floor(rng() * drops.length)] ?? actions[0];
-  }
+    return drops[Math.floor(rng() * drops.length)] ?? null;
+  },
 
-  let best: Action[] = [];
-  let bestScore = -Infinity;
-  for (const a of actions) {
-    const next = applyAction(state, a);
-    let score = evaluate(next, me);
-    if (next.status === 'playing') {
-      // The turn may or may not have passed; either way, a reply that wins at once is fatal.
-      const probe = next.toMove === me ? { ...next, toMove: otherPlayer(me) } : next;
-      if (opponentCanWinAtOnce(probe)) score -= 5000;
-      else if (opponentCanFork(probe)) score -= 2500;
-    }
-    // Time travel and pop-out reshape the present; only worth it with a real gain.
-    if (a.type === 'travel' || a.type === 'pop') score -= 4;
-    score += rng() * 0.5; // tie-breaking noise so games differ
-    if (score > bestScore + 1e-9) {
-      bestScore = score;
-      best = [a];
-    } else if (Math.abs(score - bestScore) <= 1e-9) {
-      best.push(a);
-    }
-  }
-  return best[Math.floor(rng() * best.length)] ?? actions[0];
-}
+  /** A reply that wins at once is fatal; one that sets up a fork nearly so. */
+  replyPenalty: (probe) => (opponentCanWinAtOnce(probe) ? 5000 : opponentCanFork(probe) ? 2500 : 0),
+};
 
-/**
- * Play out the bot's whole turn: one action per waiting board until the
- * turn passes or the game ends. Returns every intermediate state so the UI
- * can show the moves one at a time.
- */
-export function playTurn(state: GameState, bot: Bot, rng: Rng = Math.random): GameState[] {
-  const steps: GameState[] = [];
-  let current = state;
-  let guard = 0;
-  while (current.status === 'playing' && current.toMove === bot.player && guard++ < 64) {
-    const action = chooseAction(current, bot.level, rng);
-    if (!action) break;
-    current = applyAction(current, action);
-    steps.push(current);
-  }
-  return steps;
-}
+export const { enumerateActions, boardScore, evaluate, chooseAction, playTurn } = bindBot(engine, brain);

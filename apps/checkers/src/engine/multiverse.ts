@@ -67,7 +67,7 @@ interface Traveller {
   square: number;
 }
 
-interface Spec extends GameSpec {
+export interface Spec extends GameSpec {
   board: Board;
   move: Move;
   rules: Rules;
@@ -171,14 +171,14 @@ const adapter: GameAdapter<Spec> = {
 
   /** A player trapped on a board they must play has lost. */
   onTurnPassed(state) {
-    for (const tl of bound.mandatoryTimelines(state)) {
+    for (const tl of engine.mandatoryTimelines(state)) {
       if (!hasAnyAction(state, tl.id)) {
         return {
           ...state,
           status: 'won',
           win: {
             player: otherPlayer(state.toMove),
-            board: bound.latestRef(tl),
+            board: engine.latestRef(tl),
             reason: 'trapped',
           },
         };
@@ -188,7 +188,8 @@ const adapter: GameAdapter<Spec> = {
   },
 };
 
-const bound = bindMultiverse(adapter);
+/** The whole bound engine, for the pieces that need more than one reader. */
+export const engine = bindMultiverse(adapter);
 
 export const {
   multiverse,
@@ -210,21 +211,21 @@ export const {
   presentTurn,
   canEndTurn,
   isPending,
-} = bound;
+} = engine;
 
 /**
  * Past boards the piece on `square` may travel to. The square matters here:
  * a piece can only arrive where its own square is still free.
  */
 export const travelTargets = (state: GameState, fromTimeline: number, square: number): BoardRef[] =>
-  bound.travelTargets(state, fromTimeline, { square });
+  engine.travelTargets(state, fromTimeline, { square });
 
 export const isTravelTarget = (
   state: GameState,
   fromTimeline: number,
   square: number,
   ref: BoardRef,
-): boolean => bound.isTravelTarget(state, fromTimeline, ref, { square });
+): boolean => engine.isTravelTarget(state, fromTimeline, ref, { square });
 
 /** Legal checkers moves on the newest board of a timeline for the current player. */
 export function legalMovesOn(state: GameState, timeline: number): Move[] {

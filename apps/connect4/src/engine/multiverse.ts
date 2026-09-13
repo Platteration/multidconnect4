@@ -85,7 +85,7 @@ interface Traveller {
   toCol: number;
 }
 
-interface Spec extends GameSpec {
+export interface Spec extends GameSpec {
   board: Board;
   move: Move;
   rules: Rules;
@@ -169,10 +169,11 @@ const adapter: GameAdapter<Spec> = {
   },
 
   /** Every board full with nobody connected is a draw. */
-  onTurnPassed: (state) => (bound.pendingTimelines(state).length === 0 ? { ...state, status: 'draw' } : null),
+  onTurnPassed: (state) => (engine.pendingTimelines(state).length === 0 ? { ...state, status: 'draw' } : null),
 };
 
-const bound = bindMultiverse(adapter);
+/** The whole bound engine, for the pieces that need more than one reader. */
+export const engine = bindMultiverse(adapter);
 
 export const {
   multiverse,
@@ -196,7 +197,7 @@ export const {
   isPending,
   travelTargets,
   isTravelTarget,
-} = bound;
+} = engine;
 
 /** Whether the newest board of a timeline may be spun right now. */
 export function canRotate(state: GameState, timeline: number): boolean {

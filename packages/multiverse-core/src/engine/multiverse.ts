@@ -411,6 +411,9 @@ export function bindMultiverse<G extends GameSpec>(adapter: GameAdapter<G>) {
   const mv = new Multiverse(adapter);
   return {
     multiverse: mv,
+    adapter,
+    /** Whether a board is finished, e.g. a full Connect Four grid. */
+    isDead: (board: G['board']) => adapter.isDead(board),
     // The plain readers are bound too. They are generic over the whole spec,
     // which TypeScript cannot infer from a `GameState<G>` argument alone, so
     // binding them here is what keeps them properly typed for a game.
