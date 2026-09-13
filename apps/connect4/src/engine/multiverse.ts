@@ -1,6 +1,6 @@
 /**
- * The multiverse: many Connect Four boards arranged into timelines, with
- * discs that can travel into the past.
+ * Connect Four's multiverse: the shared timeline machinery from `@5d/core`,
+ * plus the rules that are this game's own.
  *
  * Rules in one breath:
  *  - A timeline is a sequence of boards, one per turn. Red moves on even
@@ -22,6 +22,19 @@
  *  - Four in a row on ANY board wins the whole game instantly.
  */
 import {
+  BoardRef,
+  GameAdapter,
+  GameSpec,
+  IllegalAction,
+  Multiverse,
+  Player,
+  ReadAction,
+  Timeline as CoreTimeline,
+  GameState as CoreState,
+  Status,
+  WinInfo as CoreWinInfo,
+} from '@5d/core';
+import {
   Board,
   Spin,
   cellAt,
@@ -33,28 +46,9 @@ import {
   rotate,
   winnerOf,
 } from './board';
-import { BoardRef, otherPlayer, Player, playerToMoveAt, sameRef } from './types';
 
-export interface Timeline {
-  id: number;
-  /** Turn index of boards[0]. The root timeline starts at 0. */
-  startTurn: number;
-  boards: Board[];
-  /** Who created this timeline by travelling. null for the root timeline. */
-  createdBy: Player | null;
-  /** The past board this timeline branched from. */
-  branchedFrom: BoardRef | null;
-  /** The board the travelling disc left. */
-  origin: BoardRef | null;
-}
-
-export type Status = 'playing' | 'won' | 'draw';
-
-export interface WinInfo {
-  player: Player;
-  board: BoardRef;
-  cells: number[];
-}
+export { IllegalAction };
+export type { Status };
 
 /** Optional rule variants, fixed for the whole game. */
 export interface Rules {
@@ -81,166 +75,158 @@ export type Action =
       col: number;
     };
 
-export interface GameState {
-  rules: Rules;
-  timelines: Timeline[];
-  toMove: Player;
-  status: Status;
-  win: WinInfo | null;
-  /** Number of completed full turns (both players moved). Just for display. */
-  round: number;
-  lastAction: Action | null;
-  /** Boards created by the last action, so the UI can highlight them. */
-  lastCreated: BoardRef[];
+/** An ordinary move: everything that changes one board in place. */
+type Move = Extract<Action, { type: 'drop' | 'rotate' | 'flip' | 'pop' }>;
+
+/** A disc in flight: where it leaves from, and which column it lands in. */
+interface Traveller {
+  row: number;
+  col: number;
+  toCol: number;
 }
 
+interface Spec extends GameSpec {
+  board: Board;
+  move: Move;
+  rules: Rules;
+  action: Action;
+  traveller: Traveller;
+  winExtra: { cells: number[] };
+  /** Connect Four keeps no extra state of its own. */
+  extra: Record<never, never>;
+}
+
+export type Timeline = CoreTimeline<Board>;
+export type GameState = CoreState<Spec>;
+export type WinInfo = CoreWinInfo<{ cells: number[] }>;
+
+const adapter: GameAdapter<Spec> = {
+  defaultRules: DEFAULT_RULES,
+  initialExtra: {},
+  initialBoard: () => emptyBoard(),
+
+  read(action): ReadAction<Spec> {
+    if (action.type === 'endTurn') return { kind: 'endTurn' };
+    if (action.type === 'travel') {
+      return {
+        kind: 'travel',
+        fromTimeline: action.from.timeline,
+        to: action.to,
+        traveller: { row: action.from.row, col: action.from.col, toCol: action.col },
+      };
+    }
+    return { kind: 'move', timeline: action.timeline, move: action };
+  },
+
+  /** A full board is finished and never waits for anyone. */
+  isDead: (board) => isFull(board),
+
+  applyMove(board, move, me, rules) {
+    if (move.type === 'drop') {
+      const dropped = dropDisc(board, move.col, me);
+      if (!dropped) throw new IllegalAction('that column is full');
+      return dropped.board;
+    }
+    if (move.type === 'rotate' || move.type === 'flip') {
+      if (move.type === 'flip' && !rules.flip) throw new IllegalAction('flipping is not enabled in this game');
+      if (board.spun) throw new IllegalAction('that board was just turned; play a disc first');
+      if (board.cells.every((c) => c === null)) throw new IllegalAction('turning an empty board would change nothing');
+      return move.type === 'flip' ? flip(board) : rotate(board, move.spin);
+    }
+    if (!rules.popOut) throw new IllegalAction('pop out is not enabled in this game');
+    if (cellAt(board, 0, move.col) !== me) {
+      throw new IllegalAction('you can only pop out your own disc from the bottom row');
+    }
+    return removeDisc(board, 0, move.col);
+  },
+
+  /** Any board with room can take a travelling disc; the column is chosen on arrival. */
+  canReceive: (board) => !isFull(board),
+
+  depart(board, traveller, me) {
+    if (cellAt(board, traveller.row, traveller.col) !== me) {
+      throw new IllegalAction('you can only send your own discs back in time');
+    }
+    return removeDisc(board, traveller.row, traveller.col);
+  },
+
+  arrive(target, traveller, me) {
+    const arrived = dropDisc(target, traveller.toCol, me);
+    if (!arrived) throw new IllegalAction('that column is full on the past board');
+    return arrived.board;
+  },
+
+  /**
+   * Four in a row on any board that just changed ends the game. The mover's
+   * lines take priority over any line the opponent gets from a collapse.
+   */
+  resolveOutcome(created, mover) {
+    for (const { ref, board } of created) {
+      const line = winnerOf(board, mover);
+      if (line) return { player: line.player, board: ref, cells: line.cells };
+    }
+    return null;
+  },
+
+  /** Every board full with nobody connected is a draw. */
+  onTurnPassed: (state) =>
+    multiverse.pendingTimelines(state).length === 0 ? { ...state, status: 'draw' } : null,
+};
+
+const multiverse = new Multiverse(adapter);
+
 export function newGame(rules: Partial<Rules> = {}): GameState {
-  return {
-    rules: { ...DEFAULT_RULES, ...rules },
-    timelines: [
-      {
-        id: 0,
-        startTurn: 0,
-        boards: [emptyBoard()],
-        createdBy: null,
-        branchedFrom: null,
-        origin: null,
-      },
-    ],
-    toMove: 0,
-    status: 'playing',
-    win: null,
-    round: 0,
-    lastAction: null,
-    lastCreated: [],
-  };
+  return multiverse.newGame(rules);
 }
 
 export function timelineLabel(id: number): string {
   return `Timeline ${id + 1}`;
 }
 
-export function getTimeline(state: GameState, id: number): Timeline {
+export const getTimeline = (state: GameState, id: number): Timeline => {
   const tl = state.timelines[id];
   if (!tl) throw new Error(`no timeline ${id}`);
   return tl;
-}
+};
 
-export function latestTurn(tl: Timeline): number {
-  return tl.startTurn + tl.boards.length - 1;
-}
-
-export function latestBoard(tl: Timeline): Board {
-  return tl.boards[tl.boards.length - 1];
-}
-
-export function latestRef(tl: Timeline): BoardRef {
-  return { timeline: tl.id, turn: latestTurn(tl) };
-}
+export const latestTurn = (tl: Timeline): number => tl.startTurn + tl.boards.length - 1;
+export const latestBoard = (tl: Timeline): Board => tl.boards[tl.boards.length - 1];
+export const latestRef = (tl: Timeline): BoardRef => ({ timeline: tl.id, turn: latestTurn(tl) });
 
 export function getBoard(state: GameState, ref: BoardRef): Board | undefined {
   const tl = state.timelines[ref.timeline];
-  if (!tl) return undefined;
-  return tl.boards[ref.turn - tl.startTurn];
+  return tl?.boards[ref.turn - tl.startTurn];
 }
 
-export function isLatest(state: GameState, ref: BoardRef): boolean {
+export const isLatest = (state: GameState, ref: BoardRef): boolean => {
   const tl = state.timelines[ref.timeline];
   return !!tl && latestTurn(tl) === ref.turn;
-}
+};
 
 /** Every board in the multiverse, in timeline order. */
 export function allBoards(state: GameState): Array<{ ref: BoardRef; board: Board }> {
   const out: Array<{ ref: BoardRef; board: Board }> = [];
   for (const tl of state.timelines) {
-    tl.boards.forEach((board, i) => {
-      out.push({ ref: { timeline: tl.id, turn: tl.startTurn + i }, board });
-    });
+    tl.boards.forEach((board, i) => out.push({ ref: { timeline: tl.id, turn: tl.startTurn + i }, board }));
   }
   return out;
 }
 
 /** The latest turn index anywhere in the multiverse. */
-export function maxTurn(state: GameState): number {
-  return Math.max(...state.timelines.map(latestTurn));
-}
+export const maxTurn = (state: GameState): number => Math.max(...state.timelines.map(latestTurn));
 
-/**
- * Timelines whose newest board the current player may move now.
- * Full boards are finished and never wait for anyone.
- */
-export function pendingTimelines(state: GameState): Timeline[] {
-  if (state.status !== 'playing') return [];
-  return state.timelines.filter(
-    (tl) => playerToMoveAt(latestTurn(tl)) === state.toMove && !isFull(latestBoard(tl)),
-  );
-}
+export const pendingTimelines = (state: GameState): Timeline[] => multiverse.pendingTimelines(state);
+export const presentTurn = (state: GameState): number => multiverse.presentTurn(state);
+export const mandatoryTimelines = (state: GameState): Timeline[] => multiverse.mandatoryTimelines(state);
+export const optionalTimelines = (state: GameState): Timeline[] => multiverse.optionalTimelines(state);
+export const canEndTurn = (state: GameState): boolean => multiverse.canEndTurn(state);
+export const isPending = (state: GameState, ref: BoardRef): boolean => multiverse.isPending(state, ref);
 
-/** The present: the earliest "now" among unfinished timelines. */
-export function presentTurn(state: GameState): number {
-  const turns = state.timelines.filter((tl) => !isFull(latestBoard(tl))).map(latestTurn);
-  return turns.length ? Math.min(...turns) : maxTurn(state);
-}
+export const travelTargets = (state: GameState, fromTimeline: number): BoardRef[] =>
+  multiverse.travelTargets(state, fromTimeline);
 
-/**
- * Timelines the current player MUST move before the turn can end. With the
- * strict-present rule only boards at the present count; otherwise every
- * waiting board does.
- */
-export function mandatoryTimelines(state: GameState): Timeline[] {
-  const pending = pendingTimelines(state);
-  if (!state.rules.strictPresent) return pending;
-  const present = presentTurn(state);
-  return pending.filter((tl) => latestTurn(tl) === present);
-}
-
-/** Timelines the current player may move this turn but need not (strict present only). */
-export function optionalTimelines(state: GameState): Timeline[] {
-  if (!state.rules.strictPresent) return [];
-  const present = presentTurn(state);
-  return pendingTimelines(state).filter((tl) => latestTurn(tl) > present);
-}
-
-/** Whether the current player may end the turn now (strict present only). */
-export function canEndTurn(state: GameState): boolean {
-  return state.status === 'playing' && state.rules.strictPresent && mandatoryTimelines(state).length === 0 && optionalTimelines(state).length > 0;
-}
-
-export function isPending(state: GameState, ref: BoardRef): boolean {
-  return isLatest(state, ref) && pendingTimelines(state).some((tl) => tl.id === ref.timeline);
-}
-
-/**
- * Past boards a disc may travel to from the newest board of `fromTimeline`.
- * A target must be strictly in the past, must not be the newest board of its
- * own timeline (you play those normally), must have been the traveller's
- * move, and must have room for a disc.
- */
-export function travelTargets(state: GameState, fromTimeline: number): BoardRef[] {
-  if (state.status !== 'playing') return [];
-  const from = state.timelines[fromTimeline];
-  if (!from) return [];
-  const originTurn = latestTurn(from);
-  const out: BoardRef[] = [];
-  for (const tl of state.timelines) {
-    const last = latestTurn(tl);
-    tl.boards.forEach((board, i) => {
-      const turn = tl.startTurn + i;
-      if (turn >= originTurn) return;
-      if (turn === last) return;
-      if (playerToMoveAt(turn) !== state.toMove) return;
-      if (isFull(board)) return;
-      out.push({ timeline: tl.id, turn });
-    });
-  }
-  return out;
-}
-
-export function isTravelTarget(state: GameState, fromTimeline: number, ref: BoardRef): boolean {
-  return travelTargets(state, fromTimeline).some((t) => sameRef(t, ref));
-}
-
-export class IllegalAction extends Error {}
+export const isTravelTarget = (state: GameState, fromTimeline: number, ref: BoardRef): boolean =>
+  multiverse.isTravelTarget(state, fromTimeline, ref);
 
 /** Whether the newest board of a timeline may be spun right now. */
 export function canRotate(state: GameState, timeline: number): boolean {
@@ -250,114 +236,7 @@ export function canRotate(state: GameState, timeline: number): boolean {
   return !board.spun && board.cells.some((c) => c !== null);
 }
 
-function assertPending(state: GameState, timeline: number): Timeline {
-  const tl = getTimeline(state, timeline);
-  if (!pendingTimelines(state).some((p) => p.id === timeline)) {
-    throw new IllegalAction(`${timelineLabel(timeline)} is not waiting for a move`);
-  }
-  return tl;
-}
+export const applyAction = (state: GameState, action: Action): GameState =>
+  multiverse.applyAction(state, action);
 
-/** Apply an action. Throws IllegalAction when the move is not allowed. */
-export function applyAction(state: GameState, action: Action): GameState {
-  if (state.status !== 'playing') throw new IllegalAction('the game is over');
-  const me = state.toMove;
-  if (action.type === 'endTurn') {
-    if (!canEndTurn(state)) throw new IllegalAction('you still have boards at the present to play');
-    return passTurn({ ...state, lastAction: action, lastCreated: [] });
-  }
-  const timelines = state.timelines.map((tl) => ({ ...tl, boards: tl.boards.slice() }));
-  const created: BoardRef[] = [];
-
-  if (action.type === 'drop') {
-    const tl = assertPending(state, action.timeline);
-    const dropped = dropDisc(latestBoard(tl), action.col, me);
-    if (!dropped) throw new IllegalAction('that column is full');
-    timelines[tl.id].boards.push(dropped.board);
-    created.push(latestRef(timelines[tl.id]));
-  } else if (action.type === 'rotate' || action.type === 'flip') {
-    const tl = assertPending(state, action.timeline);
-    const board = latestBoard(tl);
-    if (action.type === 'flip' && !state.rules.flip) throw new IllegalAction('flipping is not enabled in this game');
-    if (board.spun) throw new IllegalAction('that board was just turned; play a disc first');
-    if (board.cells.every((c) => c === null)) throw new IllegalAction('turning an empty board would change nothing');
-    timelines[tl.id].boards.push(action.type === 'flip' ? flip(board) : rotate(board, action.spin));
-    created.push(latestRef(timelines[tl.id]));
-  } else if (action.type === 'pop') {
-    if (!state.rules.popOut) throw new IllegalAction('pop out is not enabled in this game');
-    const tl = assertPending(state, action.timeline);
-    const board = latestBoard(tl);
-    if (cellAt(board, 0, action.col) !== me) throw new IllegalAction('you can only pop out your own disc from the bottom row');
-    timelines[tl.id].boards.push(removeDisc(board, 0, action.col));
-    created.push(latestRef(timelines[tl.id]));
-  } else {
-    const from = assertPending(state, action.from.timeline);
-    const originBoard = latestBoard(from);
-    if (cellAt(originBoard, action.from.row, action.from.col) !== me) {
-      throw new IllegalAction('you can only send your own discs back in time');
-    }
-    if (!isTravelTarget(state, from.id, action.to)) {
-      throw new IllegalAction('that board cannot be travelled to');
-    }
-    const target = getBoard(state, action.to)!;
-    const arrived = dropDisc(target, action.col, me);
-    if (!arrived) throw new IllegalAction('that column is full on the past board');
-
-    timelines[from.id].boards.push(removeDisc(originBoard, action.from.row, action.from.col));
-    created.push(latestRef(timelines[from.id]));
-
-    const branch: Timeline = {
-      id: timelines.length,
-      startTurn: action.to.turn + 1,
-      boards: [arrived.board],
-      createdBy: me,
-      branchedFrom: { ...action.to },
-      origin: latestRef(from),
-    };
-    timelines.push(branch);
-    created.push(latestRef(branch));
-  }
-
-  let next: GameState = {
-    ...state,
-    timelines,
-    lastAction: action,
-    lastCreated: created,
-  };
-
-  // Four in a row on any board that just changed ends the game. The mover's
-  // lines take priority over any line the opponent gets from a collapse.
-  for (const ref of created) {
-    const line = winnerOf(getBoard(next, ref)!, me);
-    if (line) {
-      return { ...next, status: 'won', win: { player: line.player, board: ref, cells: line.cells } };
-    }
-  }
-
-  return resolveTurn(next);
-}
-
-/**
- * Pass the turn once the current player has nothing left to do. If the next
- * player also has nothing to do (every board is full) the game is drawn.
- */
-export function resolveTurn(state: GameState): GameState {
-  if (state.status !== 'playing') return state;
-  if (mandatoryTimelines(state).length > 0) return state;
-  // With optional boards left, the player ends the turn explicitly.
-  if (optionalTimelines(state).length > 0) return state;
-  return passTurn(state);
-}
-
-/** Hand the turn to the other player, or declare a draw if they have nothing to play. */
-function passTurn(state: GameState): GameState {
-  const flipped: GameState = {
-    ...state,
-    toMove: otherPlayer(state.toMove),
-    round: state.toMove === 1 ? state.round + 1 : state.round,
-  };
-  if (pendingTimelines(flipped).length === 0) {
-    return { ...flipped, status: 'draw' };
-  }
-  return flipped;
-}
+export const resolveTurn = (state: GameState): GameState => multiverse.resolveTurn(state);
