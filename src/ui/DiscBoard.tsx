@@ -59,12 +59,13 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
               styles.hole,
               { width: disc, height: disc, borderRadius: disc / 2 },
               dropped && dropped.row === r && dropped.col === c ? { transform: [{ translateY: fall }] } : null,
-              value !== null && { backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
+              value !== null && { borderBottomWidth: 5, backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
               isGhost && { backgroundColor: colors.players[ghostPlayer!], opacity: 0.14, borderColor: 'transparent' },
               isSelected && styles.selected,
               isHighlighted && styles.highlighted,
             ]}
           >
+            {value !== null ? <View pointerEvents="none" style={styles.discShine} /> : null}
             {patterns && value !== null ? <Marker player={value} size={disc} /> : null}
           </Animated.View>
         </Pressable>,
@@ -108,6 +109,7 @@ const makeStyles = (colors: Theme) =>
     borderRadius: radius.lg,
     borderWidth: 2,
     borderColor: colors.boardDark,
+    borderBottomWidth: 6,
     alignSelf: 'center',
   },
   row: { flexDirection: 'row' },
@@ -116,6 +118,7 @@ const makeStyles = (colors: Theme) =>
     borderWidth: 2,
     borderColor: colors.boardDark,
   },
+  discShine: { position: 'absolute', top: '12%', left: '20%', width: '42%', height: '12%', borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.38)' },
   selected: {
     borderColor: colors.focus,
     borderWidth: 4,
