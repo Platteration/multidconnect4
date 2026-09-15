@@ -8,4 +8,5 @@ export * from './bot';
 export * from './stats';
 export * from './setup';
 export * from './daily';
+export * from './achievements';
 export * from './engine';

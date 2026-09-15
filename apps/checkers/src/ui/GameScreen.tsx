@@ -31,7 +31,7 @@ import { decodeGame, encodeGame } from '../app/share';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { dailyPuzzle } from '../puzzles/daily';
 import { CheckerBoard, Destination } from './CheckerBoard';
-import { Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal, useGameShell } from '@5d/core/ui';
+import { AchievementsModal, Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal, useGameShell } from '@5d/core/ui';
 import { MiniBoard } from './MiniBoard';
 import { GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
@@ -78,6 +78,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const { showHint, setShowHint, resultDismissed, setResultDismissed, gameOverDismissed, setGameOverDismissed } = shell;
   const { menuOpen, setMenuOpen, newGameOpen, setNewGameOpen, puzzlesOpen, setPuzzlesOpen } = shell;
   const { rulesOpen, setRulesOpen, settingsOpen, setSettingsOpen, statsOpen, setStatsOpen } = shell;
+  const { badgesOpen, setBadgesOpen, justEarned } = shell;
   const { shareOpen, setShareOpen, extrasOpen, setExtrasOpen } = shell;
 
   // A tiny multiverse for the welcome pages: four moves, then a travel.
@@ -309,6 +310,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           { label: 'Puzzles', onPress: () => setPuzzlesOpen(true) },
           { label: 'How to play', onPress: () => setRulesOpen(true) },
           { label: 'Your record', onPress: () => setStatsOpen(true) },
+          { label: 'Badges', onPress: () => setBadgesOpen(true) },
           { label: 'Settings', onPress: () => setSettingsOpen(true) },
           { label: 'Extras', onPress: () => setExtrasOpen(true) },
         ]}
@@ -333,6 +335,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         premiumSkins={SKINS.filter((s) => s.premium).map((s) => s.name)}
         premiumPieces={PIECE_SETS.filter((p) => p.premium).map((p) => p.name)}
       />
+      <AchievementsModal visible={badgesOpen} onClose={() => setBadgesOpen(false)} />
       <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} stats={stats} puzzleCount={PUZZLES.length} />
       <WelcomeModal
         visible={!settings.welcomed}
@@ -405,6 +408,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       />
       <GameOverModal
         state={state}
+        newBadges={justEarned}
         visible={!puzzle && state.status !== 'playing' && !gameOverDismissed}
         onRestart={() => {
           setGameOverDismissed(true);

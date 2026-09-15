@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, View, useWindowDimensions } from 'react-native';
 import { codeFromUrl, keys, removeKey, saveJson, setHapticsEnabled, setSoundEnabled, useProgress, useSettings } from '../app';
 import type { Bot, BotLevel } from '../bot';
+import { achievementsFor, describeRun, progressAchievementsFor } from '../achievements';
 import { DAILY_PREFIX } from '../daily';
 import type { GameSetup } from '../setup';
 import type { BoardRef } from '../types';
@@ -78,7 +79,8 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     playBotAction,
   } = options;
   const { settings } = useSettings();
-  const { markSolved, markDailySolved } = useProgress();
+  const { markSolved, markDailySolved, badges, award, solved, daily } = useProgress();
+  const [justEarned, setJustEarned] = useState<string[]>([]);
 
   // Replay: look at any earlier state read-only, without touching the live game.
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
@@ -93,21 +95,40 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
   const [rulesOpen, setRulesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [badgesOpen, setBadgesOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [extrasOpen, setExtrasOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [resultDismissed, setResultDismissed] = useState(false);
   const [gameOverDismissed, setGameOverDismissed] = useState(false);
 
-  // Fold each finished game (not puzzles) into the record, once.
+  // Fold each finished game (not puzzles) into the record, once, and hand out
+  // whatever badges it earned.
   const recordedRef = useRef<GameState<G> | null>(null);
   useEffect(() => {
     const live = game.state;
     if (live.status === 'playing' || game.setup.mode === 'puzzle' || recordedRef.current === live) return;
     recordedRef.current = live;
     recordGame(game.history, game.setup);
+    const fresh = achievementsFor(describeRun(game.history, game.setup)).filter((id) => !badges.has(id));
+    if (fresh.length) {
+      award(fresh);
+      setJustEarned(fresh);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.state.status]);
+
+  // Badges that are about the collection rather than one game.
+  useEffect(() => {
+    const fresh = progressAchievementsFor({
+      puzzlesSolved: [...solved].filter((id) => !id.startsWith(DAILY_PREFIX)).length,
+      puzzleCount: puzzles.length,
+      dailyStreak: daily.streak,
+      dailyDays: daily.days.length,
+    }).filter((id) => !badges.has(id));
+    if (fresh.length) award(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solved, daily, puzzles.length]);
 
   // A game code arriving by link (cold start or while running) loads the game.
   const loadCode = (code: string): string | null => {
@@ -233,6 +254,8 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     setResultDismissed,
     gameOverDismissed,
     setGameOverDismissed,
+    /** Badges the game that just finished earned, for the game-over sheet. */
+    justEarned,
     menuOpen,
     setMenuOpen,
     newGameOpen,
@@ -245,6 +268,8 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     setSettingsOpen,
     statsOpen,
     setStatsOpen,
+    badgesOpen,
+    setBadgesOpen,
     shareOpen,
     setShareOpen,
     extrasOpen,

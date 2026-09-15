@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { achievementById } from '@5d/core';
 import { Button } from '@5d/core/ui';
 import { GameState, timelineLabel } from '../engine';
 import { radius, spacing, Theme, useTheme } from './theme';
@@ -72,13 +73,15 @@ function Rule({ head, children }: { head: string; children: React.ReactNode }) {
 
 interface GameOverProps {
   state: GameState;
+  /** Badges this game earned, named so they are not silently filed away. */
+  newBadges?: readonly string[];
   visible: boolean;
   onRestart: () => void;
   onDismiss: () => void;
   onReplay?: () => void;
 }
 
-export function GameOverModal({ state, visible, onRestart, onDismiss, onReplay }: GameOverProps) {
+export function GameOverModal({ state, newBadges, visible, onRestart, onDismiss, onReplay }: GameOverProps) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const win = state.win;
@@ -92,6 +95,11 @@ export function GameOverModal({ state, visible, onRestart, onDismiss, onReplay }
         <View style={styles.sheet}>
           <Text style={[styles.title, win ? { color: colors.playerAccent[win.player] } : null]}>{headline}</Text>
           <Text style={styles.ruleBody}>{detail}</Text>
+          {newBadges && newBadges.length > 0 ? (
+            <Text style={[styles.ruleBody, { color: colors.success, marginTop: spacing.sm }]}>
+              ✦ {newBadges.map((id) => achievementById(id)?.name ?? id).join(', ')}
+            </Text>
+          ) : null}
           <View style={{ height: spacing.lg }} />
           <Button label="New game" tone="primary" onPress={onRestart} />
           <View style={{ height: spacing.sm }} />
