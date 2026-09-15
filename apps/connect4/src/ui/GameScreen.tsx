@@ -22,6 +22,8 @@ import {
   pendingTimelines,
   playerToMoveAt,
   timelineLabel,
+  engine,
+  Spec,
 } from '../engine';
 import { useEntitlements, useProgress, useSettings, webLinkFor } from '@5d/core/app';
 import { GameSetup, todayIso } from '@5d/core';
@@ -31,12 +33,30 @@ import { decodeGame, encodeGame } from '../app/share';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { dailyPuzzle } from '../puzzles/daily';
 import { DiscBoard } from './DiscBoard';
-import { AchievementsModal, Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal, useGameShell } from '@5d/core/ui';
+import { AchievementsModal, Button, ExtrasModal, TutorialStep, tutorialChecks, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal, useGameShell } from '@5d/core/ui';
 import { MiniBoard } from './MiniBoard';
 import { GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { PIECE_SETS, radius, SKINS, spacing, Theme, useTheme } from './theme';
 import { useGame } from './useGame';
+
+
+/** The coached first game: five things to do, in the order they make sense. */
+const TUTORIAL: TutorialStep<Spec>[] = (() => {
+  const check = tutorialChecks(engine);
+  return [
+    { hint: 'Tap a column to drop a disc. Watch the row of boards at the bottom: your move makes a new one.', done: check.played },
+    { hint: 'Now the other side. Drop a few discs between you — each one adds a board to the map.', done: check.roundPlayed },
+    {
+      hint: 'Here is the trick: tap one of YOUR discs on this board to pick it up, then tap a glowing board further left to send it back there.',
+      done: check.branched,
+    },
+    {
+      hint: 'Now two boards are marked "play", and both must be answered before the turn passes. You are playing both sides here, so play them both.',
+      done: check.answeredTheBranch,
+    },
+  ];
+})();
 
 interface Props {
   /** A saved game to resume, oldest state first. */
@@ -86,6 +106,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     encodeGame,
     chooseAction,
     recordGame,
+    tutorial: TUTORIAL,
     board: { cells: MAX_SIDE, portrait: 0.36, landscape: 0.6, min: 26, max: 56 },
     busy: spinning,
     // A bot that spins or flips turns the board on screen before the move lands.
@@ -107,6 +128,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const { menuOpen, setMenuOpen, newGameOpen, setNewGameOpen, puzzlesOpen, setPuzzlesOpen } = shell;
   const { rulesOpen, setRulesOpen, settingsOpen, setSettingsOpen, statsOpen, setStatsOpen } = shell;
   const { badgesOpen, setBadgesOpen, justEarned } = shell;
+  const { tutorialHint, tutorialFinished, startTutorial, stopTutorial } = shell;
   const { shareOpen, setShareOpen, extrasOpen, setExtrasOpen } = shell;
 
   const startSpin = (direction: Spin) => {
@@ -301,10 +323,15 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         />
       ) : null}
       <View style={[styles.hintRow, replaying && { display: 'none' }]}>
-        <Text style={[styles.hint, game.error ? { color: colors.danger } : null]} numberOfLines={3}>
-          {game.error ?? hint}
+        <Text
+          style={[styles.hint, game.error ? { color: colors.danger } : tutorialHint ? { color: colors.travel } : null]}
+          numberOfLines={3}
+        >
+          {game.error ?? tutorialHint ?? hint}
         </Text>
-        {puzzle && selection.kind === 'none' && humanTurn && state.status === 'playing' ? (
+        {tutorialHint ? (
+          <Button label={tutorialFinished ? 'Done' : 'Stop'} small tone={tutorialFinished ? 'primary' : 'ghost'} onPress={stopTutorial} />
+        ) : puzzle && selection.kind === 'none' && humanTurn && state.status === 'playing' ? (
           <Button label={showHint ? 'Brief' : 'Hint'} small onPress={() => setShowHint((h) => !h)} />
         ) : selection.kind !== 'none' ? (
           <View style={{ flexDirection: 'row' }}>
@@ -370,6 +397,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           { label: 'Play by message', onPress: () => setShareOpen(true) },
           { label: 'Puzzles', onPress: () => setPuzzlesOpen(true) },
           { label: 'How to play', onPress: () => setRulesOpen(true) },
+          { label: 'Teach me the mechanic', onPress: startTutorial },
           { label: 'Your record', onPress: () => setStatsOpen(true) },
           { label: 'Badges', onPress: () => setBadgesOpen(true) },
           { label: 'Settings', onPress: () => setSettingsOpen(true) },
@@ -405,6 +433,10 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         onPuzzles={() => {
           updateSettings({ welcomed: true });
           setPuzzlesOpen(true);
+        }}
+        onTutorial={() => {
+          updateSettings({ welcomed: true });
+          startTutorial();
         }}
       />
       <ShareModal

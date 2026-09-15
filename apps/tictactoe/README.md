@@ -27,6 +27,17 @@ games here, and the one where the mechanic *is* the game.
   earliest "now" anywhere — must be played. Boards ahead of it are optional, and
   you end your turn yourself.
 
+## Beyond a game
+
+- **Today's challenge** — a position generated from the date, the same for
+  everyone, with a move that wins. Solving it on consecutive days builds a
+  streak, shown on your record.
+- **Badges** — fourteen of them, for branching, for winning on a board that
+  only exists because someone travelled, for beating each bot, and for the
+  collection as a whole.
+- **Teach me the mechanic** — a coached first game, four steps long.
+- **Puzzles**, **play by message**, **replay**, and the skins and piece sets.
+
 ## Layout
 
 - `src/engine` — the rules. Pure TypeScript, no React. `board.ts` is this game's

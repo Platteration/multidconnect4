@@ -14,11 +14,13 @@ interface Props {
   visible: boolean;
   pages: WelcomePage[];
   onPuzzles: () => void;
+  /** Offered only when the game has a coached first game to run. */
+  onTutorial?: () => void;
   onClose: () => void;
 }
 
 /** A three-page first-launch walkthrough of the one idea that matters. */
-export function WelcomeModal({ visible, pages, onPuzzles, onClose }: Props) {
+export function WelcomeModal({ visible, pages, onPuzzles, onTutorial, onClose }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [index, setIndex] = useState(0);
@@ -37,7 +39,13 @@ export function WelcomeModal({ visible, pages, onPuzzles, onClose }: Props) {
           <View style={{ height: spacing.lg }} />
           {last ? (
             <>
-              <Button label="Try a puzzle first" tone="primary" onPress={onPuzzles} />
+              {onTutorial ? (
+                <>
+                  <Button label="Teach me" tone="primary" onPress={onTutorial} />
+                  <View style={{ height: spacing.sm }} />
+                </>
+              ) : null}
+              <Button label="Try a puzzle first" tone={onTutorial ? 'ghost' : 'primary'} onPress={onPuzzles} />
               <View style={{ height: spacing.sm }} />
               <Button label="Just play" onPress={onClose} />
             </>

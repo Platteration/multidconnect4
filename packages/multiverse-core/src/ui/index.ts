@@ -18,4 +18,5 @@ export * from './NewGameModal';
 export * from './SettingsModal';
 export * from './MultiverseMap';
 export * from './useMultiverseGame';
+export * from './tutorial';
 export * from './useGameShell';

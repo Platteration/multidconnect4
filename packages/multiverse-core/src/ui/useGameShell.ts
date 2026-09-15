@@ -6,7 +6,7 @@
  * None of it looks at a board, so none of it is a game's own. What is left
  * in a game's GameScreen is the board, the words, and the sheets' contents.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, View, useWindowDimensions } from 'react-native';
 import { codeFromUrl, keys, removeKey, saveJson, setHapticsEnabled, setSoundEnabled, useProgress, useSettings } from '../app';
 import type { Bot, BotLevel } from '../bot';
@@ -16,6 +16,7 @@ import type { GameSetup } from '../setup';
 import type { BoardRef } from '../types';
 import type { GameSpec, GameState } from '../engine';
 import type { PuzzleStart } from './useMultiverseGame';
+import type { TutorialStep } from './tutorial';
 import { spacing } from './theme';
 
 /** The bits of a game's controller the shell touches. */
@@ -28,6 +29,8 @@ export interface ShellGame<G extends GameSpec> {
   focus: BoardRef;
   play: (action: G['action']) => void;
   load: (history: GameState<G>[], setup: GameSetup) => void;
+  /** Throw the game away and start a new one, which is how the coach begins. */
+  startNew: (setup: GameSetup) => void;
 }
 
 /** How the board wants to be sized, in cells and in fractions of the screen. */
@@ -60,6 +63,8 @@ export interface GameShellOptions<G extends GameSpec, P extends PuzzleStart<Game
    * animation is done. The default plays it straight away.
    */
   playBotAction?: (action: G['action'], commit: () => void) => void;
+  /** The coached first game, one step at a time. Omit it and the coach is simply never offered. */
+  tutorial?: TutorialStep<G>[];
 }
 
 export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState<G>>>(
@@ -77,6 +82,7 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     board: sizing,
     busy = false,
     playBotAction,
+    tutorial,
   } = options;
   const { settings } = useSettings();
   const { markSolved, markDailySolved, badges, award, solved, daily } = useProgress();
@@ -96,6 +102,8 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [badgesOpen, setBadgesOpen] = useState(false);
+  /** Which tutorial step is showing, or null when the coach is off. */
+  const [tutorialStep, setTutorialStep] = useState<number | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [extrasOpen, setExtrasOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
@@ -191,6 +199,35 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     return Math.max(sizing.min, Math.min(sizing.max, byWidth, byHeight));
   }, [width, height, landscape, sizing]);
 
+  // The coach moves on as soon as the player has done what it asked — but at
+  // most one step per move, so a step whose condition is already true when it
+  // appears is still read before it is ticked off.
+  const coachSawRef = useRef<GameState<G> | null>(null);
+  useEffect(() => {
+    if (tutorialStep === null || !tutorial) return;
+    const step = tutorial[tutorialStep];
+    if (!step || coachSawRef.current === state) return;
+    if (step.done(state)) {
+      coachSawRef.current = state;
+      setTutorialStep(tutorialStep + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, tutorialStep]);
+
+  const startTutorial = useCallback(() => {
+    game.startNew({ mode: 'local' });
+    setReplayIndex(null);
+    setTutorialStep(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game.startNew]);
+  const stopTutorial = useCallback(() => setTutorialStep(null), []);
+  const tutorialHint =
+    tutorialStep === null || !tutorial
+      ? null
+      : tutorialStep >= tutorial.length
+        ? 'That is the whole game. Everything else is just more boards.'
+        : `${tutorialStep + 1}/${tutorial.length} · ${tutorial[tutorialStep].hint}`;
+
   const bot: Bot | undefined = game.setup.bot;
   const puzzle = game.setup.mode === 'puzzle' && game.setup.puzzleId ? puzzleById(game.setup.puzzleId) : undefined;
   const puzzleIndex = puzzle ? puzzles.findIndex((p) => p.id === puzzle.id) : -1;
@@ -270,6 +307,13 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     setStatsOpen,
     badgesOpen,
     setBadgesOpen,
+    /** The line the coach is showing, or null when it is not running. */
+    tutorialHint,
+    /** True once the coach has been through every step. */
+    tutorialFinished: tutorialStep !== null && !!tutorial && tutorialStep >= tutorial.length,
+    startTutorial,
+    stopTutorial,
+    hasTutorial: !!tutorial && tutorial.length > 0,
     shareOpen,
     setShareOpen,
     extrasOpen,

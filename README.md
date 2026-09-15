@@ -28,6 +28,19 @@ the opponent, and `useMultiverseGame` / `useGameShell` for the screen.
 
 What stays per game is the board module, the board on screen, and the words.
 
+Three things are shared that a player actually sees, so each of them landed in
+all three games at once:
+
+- **Today's challenge** — one generated position a day, the same for everyone,
+  with a move that wins. It is built by walking a game forward with the date as
+  the seed and stopping where the engine says a move wins, so it needs no
+  server and can't be unsolvable.
+- **Badges** — read off a finished game without looking inside a board: a
+  travel is the action that made two boards at once, a branch win is a win on a
+  timeline that didn't exist at the start.
+- **A coached first game** — four steps that wait until you have actually done
+  the thing, rather than three pages of text.
+
 ## Working on it
 
 ```sh

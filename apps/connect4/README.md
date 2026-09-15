@@ -141,3 +141,14 @@ src/ui/*Modal.tsx          menu, rules, settings, new game, puzzles, share, extr
 
 The engine is pure TypeScript with no React dependency, so the rules can be
 tested (and reused, e.g. for an AI opponent or online play) without the UI.
+
+## Beyond a game
+
+- **Today's challenge** — a position generated from the date, the same for
+  everyone, with a move that wins. Solving it on consecutive days builds a
+  streak, shown on your record.
+- **Badges** — fourteen of them, for branching, for winning on a board that
+  only exists because someone travelled, for beating each bot, and for the
+  collection as a whole.
+- **Teach me the mechanic** — a coached first game, four steps long.
+- **Puzzles**, **play by message**, **replay**, and the skins and piece sets.
