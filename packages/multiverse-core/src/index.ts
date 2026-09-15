@@ -7,4 +7,5 @@ export * from './base64';
 export * from './bot';
 export * from './stats';
 export * from './setup';
+export * from './daily';
 export * from './engine';

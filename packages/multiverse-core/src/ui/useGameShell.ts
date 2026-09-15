@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, View, useWindowDimensions } from 'react-native';
 import { codeFromUrl, keys, removeKey, saveJson, setHapticsEnabled, setSoundEnabled, useProgress, useSettings } from '../app';
 import type { Bot, BotLevel } from '../bot';
+import { DAILY_PREFIX } from '../daily';
 import type { GameSetup } from '../setup';
 import type { BoardRef } from '../types';
 import type { GameSpec, GameState } from '../engine';
@@ -77,7 +78,7 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     playBotAction,
   } = options;
   const { settings } = useSettings();
-  const { markSolved } = useProgress();
+  const { markSolved, markDailySolved } = useProgress();
 
   // Replay: look at any earlier state read-only, without touching the live game.
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
@@ -183,8 +184,11 @@ export function useGameShell<G extends GameSpec, P extends PuzzleStart<GameState
     !puzzleSolved &&
     (state.status !== 'playing' || (!survive && humanTurn && game.movesUsed >= puzzle.within));
   useEffect(() => {
-    if (puzzleSolved && puzzle) markSolved(puzzle.id);
-  }, [puzzleSolved, puzzle, markSolved]);
+    if (!puzzleSolved || !puzzle) return;
+    markSolved(puzzle.id);
+    // Solving today's challenge is also a day on the streak.
+    if (puzzle.id.startsWith(DAILY_PREFIX)) markDailySolved(puzzle.id.slice(DAILY_PREFIX.length));
+  }, [puzzleSolved, puzzle, markSolved, markDailySolved]);
   useEffect(() => {
     setResultDismissed(false);
     setShowHint(false);

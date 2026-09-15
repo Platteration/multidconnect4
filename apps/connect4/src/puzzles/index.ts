@@ -6,6 +6,7 @@
  *
  * `solution` is one winning line, used by the tests and the "show me" button.
  */
+import { DAILY_PREFIX } from '@5d/core';
 import {
   Action,
   Board,
@@ -17,6 +18,7 @@ import {
   emptyBoard,
   newGame,
 } from '../engine';
+import { dailyPuzzle } from './daily';
 
 export interface Puzzle {
   id: string;
@@ -204,5 +206,8 @@ PUZZLES.push(
 );
 
 export function puzzleById(id: string): Puzzle | undefined {
+  // The daily is generated from its own date rather than listed here, so that
+  // restarting or retrying it gives back the same position.
+  if (id.startsWith(DAILY_PREFIX)) return dailyPuzzle(id.slice(DAILY_PREFIX.length)) ?? undefined;
   return PUZZLES.find((p) => p.id === id);
 }

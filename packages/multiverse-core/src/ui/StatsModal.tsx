@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import { useProgress } from '../app/progress';
+import { DAILY_PREFIX } from '../daily';
 import { BOT_NAMES, type BotLevel } from '../bot';
 import type { Stats } from '../stats';
 import { Button } from './Button';
@@ -18,7 +19,9 @@ interface Props {
 export function StatsModal({ visible, onClose, stats, puzzleCount }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { solved } = useProgress();
+  const { solved, daily } = useProgress();
+  // The daily's ids live in the same set; they are counted on their own line.
+  const puzzlesSolved = [...solved].filter((id) => !id.startsWith(DAILY_PREFIX)).length;
   const row = (label: string, value: string) => (
     <View style={styles.row} key={label}>
       <Text style={styles.label}>{label}</Text>
@@ -40,7 +43,9 @@ export function StatsModal({ visible, onClose, stats, puzzleCount }: Props) {
           {row('Time travels made', `${stats.travels}`)}
           {row('Biggest multiverse', `${stats.mostTimelines} timeline${stats.mostTimelines === 1 ? '' : 's'}`)}
           {row('Longest game', `${stats.longestGame} move${stats.longestGame === 1 ? '' : 's'}`)}
-          {row('Puzzles solved', `${solved.size} of ${puzzleCount}`)}
+          {row('Puzzles solved', `${puzzlesSolved} of ${puzzleCount}`)}
+          {row('Daily challenges', `${daily.days.length} solved`)}
+          {row('Daily streak', daily.streak ? `${daily.streak} day${daily.streak === 1 ? '' : 's'} (best ${daily.best})` : 'none yet')}
           <View style={{ height: spacing.lg }} />
           <Button label="Close" onPress={onClose} />
         </View>

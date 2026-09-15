@@ -21,12 +21,13 @@ import {
   sameRef,
   timelineLabel,
 } from '../engine';
-import { useEntitlements, useSettings, webLinkFor } from '@5d/core/app';
-import { GameSetup } from '@5d/core';
+import { useEntitlements, useProgress, useSettings, webLinkFor } from '@5d/core/app';
+import { GameSetup, todayIso } from '@5d/core';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { decodeGame, encodeGame } from '../app/share';
 import { PUZZLES, puzzleById } from '../puzzles';
+import { dailyPuzzle } from '../puzzles/daily';
 import { MarkBoard } from './MarkBoard';
 import { Button, ExtrasModal, MenuModal, NewGameModal, PuzzleResultModal, PuzzlesModal, ReplayBar, Row, Section, SettingsModal, ShareModal, StatsModal, WelcomeModal, useGameShell } from '@5d/core/ui';
 import { MiniBoard } from './MiniBoard';
@@ -46,6 +47,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
   const { recordGame, stats } = useStats();
+  const { solved: solvedPuzzles } = useProgress();
   const { entitlements } = useEntitlements();
   const rules = useMemo(
     () => ({ strictPresent: !!settings.variants.strictPresent }),
@@ -148,8 +150,11 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
           ? `${BOT_NAMES[bot.level]} is thinking…`
           : `${colors.playerNames[mover]} to move · ${totalWaiting} board${totalWaiting === 1 ? '' : 's'} waiting${optionalCount ? ` · ${optionalCount} optional` : ''}`;
 
+  const left = puzzle ? Math.max(0, puzzle.within - game.movesUsed) : 0;
+  // The daily is not in the numbered list, so it goes by its own name.
+  const puzzleName = puzzle ? (puzzleIndex >= 0 ? `Puzzle ${puzzleIndex + 1}: ${puzzle.title}` : puzzle.title) : '';
   const subtitle = puzzle
-    ? `Puzzle ${puzzleIndex + 1}: ${puzzle.title} · ${Math.max(0, puzzle.within - game.movesUsed)} move${puzzle.within - game.movesUsed === 1 ? '' : 's'} left`
+    ? `${puzzleName} · ${left} move${left === 1 ? '' : 's'} left`
     : bot
       ? `you vs ${BOT_NAMES[bot.level]} · you are ${colors.playerNames[bot.player === 0 ? 1 : 0]}`
       : 'with multiverse time travel';
@@ -180,6 +185,15 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   } else {
     hint = 'This board is history. Only time travel can change it.';
   }
+
+  // Today's challenge: one generated position a day, the same for everyone.
+  const today = todayIso();
+  const todaysDone = solvedPuzzles.has(`daily-${today}`);
+  const todaysLabel = todaysDone ? "Today's challenge ✓" : "Today's challenge";
+  const startDaily = () => {
+    const puzzle = dailyPuzzle(today) ?? PUZZLES[0];
+    game.startPuzzle(puzzle);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom', 'left', 'right']}>
@@ -283,6 +297,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         onNewGame={() => setNewGameOpen(true)}
         items={[
           ...(game.history.length > 1 ? [{ label: 'Replay this game', onPress: () => setReplayIndex(0) }] : []),
+          { label: todaysLabel, onPress: startDaily },
           { label: 'Play by message', onPress: () => setShareOpen(true) },
           { label: 'Puzzles', onPress: () => setPuzzlesOpen(true) },
           { label: 'How to play', onPress: () => setRulesOpen(true) },
