@@ -34,7 +34,7 @@ import { useProgress } from '../app/progress';
 import { decodeGame, encodeGame } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
-import { DiscBoard } from './DiscBoard';
+import { DiscBoard, boardHeight } from './DiscBoard';
 import { MenuModal } from './MenuModal';
 import { NewGameModal } from './NewGameModal';
 import { PuzzleResultModal } from './PuzzleResultModal';
@@ -369,7 +369,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       </View>
 
       <Text style={styles.boardTitle}>{boardTitle}</Text>
-      <View style={{ height: cellSize * MAX_SIDE + 8, justifyContent: 'center' }}>
+      <View style={{ height: boardHeight(cellSize, MAX_SIDE), justifyContent: 'center' }}>
         <Animated.View style={{ transform: [{ rotate: rotation }, { scale: shrink }] }}>
           <DiscBoard
             board={board}

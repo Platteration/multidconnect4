@@ -22,6 +22,20 @@ interface Props {
   onPressCell?: (row: number, col: number) => void;
 }
 
+/** The board's frame: a crisp outline with a heavier lower edge. */
+const FRAME = 2;
+const FRAME_BOTTOM = 6;
+
+/** Space between a cell's edge and its hole; the board is padded by the same amount. */
+function cellGap(cellSize: number): number {
+  return Math.max(2, Math.round(cellSize * 0.08));
+}
+
+/** Outer height of a DiscBoard with `rows` rows of `cellSize` cells: the cells, the padding and the frame. */
+export function boardHeight(cellSize: number, rows: number): number {
+  return rows * cellSize + cellGap(cellSize) * 2 + FRAME + FRAME_BOTTOM;
+}
+
 /** The big playable board. Its width and height follow the board, which may have been spun. */
 export function DiscBoard({ board, cellSize, highlight, selected, interactive, ghostPlayer, patterns, dropped, onPressCell }: Props) {
   const fall = useRef(new Animated.Value(0)).current;
@@ -34,7 +48,7 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
   }, [dropKey]);
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const gap = Math.max(2, Math.round(cellSize * 0.08));
+  const gap = cellGap(cellSize);
   const disc = cellSize - gap * 2;
   const rows: React.ReactNode[] = [];
   for (let r = board.rows - 1; r >= 0; r--) {
@@ -107,9 +121,9 @@ const makeStyles = (colors: Theme) =>
   board: {
     backgroundColor: colors.board,
     borderRadius: radius.lg,
-    borderWidth: 2,
+    borderWidth: FRAME,
     borderColor: colors.boardDark,
-    borderBottomWidth: 6,
+    borderBottomWidth: FRAME_BOTTOM,
     alignSelf: 'center',
   },
   row: { flexDirection: 'row' },
