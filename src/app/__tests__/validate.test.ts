@@ -49,9 +49,14 @@ jest.mock('@react-native-async-storage/async-storage', () => {
     },
   };
 });
-const { __store: mockStore, __flags: mockFlags } = jest.requireMock('@react-native-async-storage/async-storage') as {
+const {
+  __store: mockStore,
+  __flags: mockFlags,
+  default: mockStorage,
+} = jest.requireMock('@react-native-async-storage/async-storage') as {
   __store: Map<string, string>;
   __flags: { failWrites: boolean };
+  default: { getItem: (key: string) => Promise<string | null>; setItem: (key: string, value: string) => Promise<void> };
 };
 
 /** `constructor`, `toString`, `__proto__`, ...: the names a plain-object table answers for. */
@@ -99,6 +104,38 @@ describe('cleanSettings', () => {
   it('falls back one field at a time, never the whole record', () => {
     const s = cleanSettings({ theme: 'neon', reduceMotion: true, skin: 'wood', pieces: 7, haptics: 'yes', sound: false, welcomed: true }, D);
     expect(s).toEqual({ ...D, skin: 'wood', sound: false, welcomed: true });
+  });
+
+  it('falls back to the record it was given, not to the defaults', () => {
+    // With DEFAULT_SETTINGS as the fallback every time, a field that reached
+    // for the default instead of the fallback would be indistinguishable -
+    // which is the whole of what "per field" means.
+    const held: Settings = {
+      ...D,
+      haptics: !D.haptics,
+      sound: !D.sound,
+      patterns: !D.patterns,
+      theme: 'light',
+      reduceMotion: 'on',
+      skin: SKINS[SKINS.length - 1].id,
+      pieces: PIECE_SETS[PIECE_SETS.length - 1].id,
+      welcomed: !D.welcomed,
+    };
+    // Every field differs from its default, so a fallback that reached past
+    // `held` shows up. `variants` is not one of them: cleanVariants rebuilds
+    // it from the rules the engine declares rather than from the fallback, so
+    // a rule the engine has stopped knowing about cannot survive in it.
+    for (const [field, value] of Object.entries(held)) {
+      if (field === 'variants') continue;
+      expect(value).not.toEqual(D[field as keyof Settings]);
+    }
+    // Every other field of the stored record is nonsense, so every one of
+    // them has to come back from `held`.
+    const s = cleanSettings(
+      { haptics: 'yes', sound: 'no', patterns: 1, theme: 'neon', reduceMotion: true, skin: 'granite', pieces: 7, welcomed: 'seen', variants: 'none' },
+      held,
+    );
+    expect(s).toEqual(held);
   });
 
   it('takes a variant only when it is literally true', () => {
@@ -157,6 +194,27 @@ describe('cleanProgress', () => {
   it('bounds a list the app never wrote', () => {
     const solved = Array.from({ length: MAX_SOLVED + 5 }, (_, i) => `p${i}`);
     expect(cleanProgress({ solved }, EMPTY_PROGRESS).solved).toHaveLength(MAX_SOLVED);
+  });
+
+  it('bounds the reading, not only the keeping', () => {
+    // The cap exists so a record the app did not write cannot make every
+    // launch walk an arbitrarily long list; applied to the result of the
+    // walk, it bounded what was kept and nothing else. Counted rather than
+    // timed: a stopwatch would only say that this machine is fast.
+    // (Array.isArray sees through a proxy, so this is still a list.)
+    const stored = Array.from({ length: MAX_SOLVED * 100 }, (_, i) => `p${i % (MAX_SOLVED * 2)}`);
+    let reads = 0;
+    const watched = new Proxy(stored, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(Array.isArray(watched)).toBe(true);
+    expect(cleanProgress({ solved: watched }, EMPTY_PROGRESS).solved).toHaveLength(MAX_SOLVED);
+    // Enough to find MAX_SOLVED distinct ids, and not the whole list.
+    expect(reads).toBeGreaterThanOrEqual(MAX_SOLVED);
+    expect(reads).toBeLessThan(MAX_SOLVED * 2);
   });
 });
 
@@ -244,6 +302,56 @@ describe('migrateLegacyKeys', () => {
     const after = [...mockStore];
     await migrateLegacyKeys();
     expect([...mockStore]).toEqual(after);
+  });
+
+  it('runs on import, and every write and remove waits for it as well', async () => {
+    // removeKey is the load-bearing one: a remove that overtook the migration
+    // is undone by the copy that follows it, so the record the player just
+    // cleared - the error boundary's one way out, and the autosave's own
+    // 'clear' - is back on the next launch. A write is lost the same way when
+    // it lands after the migration has looked at the new key and before it
+    // has copied the old record over.
+    mockStore.set(LEGACY_KEYS.game, OLD('game'));
+    mockStore.set(LEGACY_KEYS.stats, OLD('stats'));
+    // Hold the migration open in exactly that window, once, for the stats
+    // record: it has read both keys and has not written yet.
+    const read = mockStorage.getItem;
+    let open!: () => void;
+    const held = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let inWindow!: () => void;
+    const reached = new Promise<void>((resolve) => {
+      inWindow = resolve;
+    });
+    let holds = 1;
+    mockStorage.getItem = async (key: string) => {
+      const value = await read(key);
+      if (key === LEGACY_KEYS.stats && holds-- > 0) {
+        inWindow();
+        await held;
+      }
+      return value;
+    };
+    try {
+      let fresh!: typeof import('../persist');
+      jest.isolateModules(() => {
+        fresh = jest.requireActual<typeof import('../persist')>('../persist');
+      });
+      // The remove is issued in the same turn as the import, the way a
+      // provider's first effect and the autosave's timer do; the write waits
+      // until the migration is inside the window, which is the only moment
+      // that can lose it.
+      const cleared = fresh.removeKey(KEYS.game);
+      await reached;
+      const written = fresh.saveJson(KEYS.stats, { games: 1 });
+      open();
+      await Promise.all([cleared, written, fresh.migrated]);
+      expect(mockStore.has(KEYS.game)).toBe(false);
+      expect(mockStore.get(KEYS.stats)).toBe(JSON.stringify({ games: 1 }));
+    } finally {
+      mockStorage.getItem = read;
+    }
   });
 
   it('runs on import, and every read waits for it', async () => {

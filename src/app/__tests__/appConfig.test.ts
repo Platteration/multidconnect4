@@ -269,7 +269,17 @@ describe('what leaves the device', () => {
     // Linking hands to the browser: no socket of the app's own. It is pinned
     // by file and by value, so a second URL, or that one anywhere else, or
     // anything but openURL reaching it, is still a finding.
-    const network = /fetch\(|axios|XMLHttpRequest|WebSocket|openURL|openBrowserAsync|expo-updates|https?:\/\//;
+    //
+    // What is looked for is the primitives AND the modules that are a socket
+    // by themselves: a WebView loads a URL of its own, expo-network reports
+    // what the socket is attached to, and expo-file-system - already here
+    // transitively, with its own INTERNET declaration already blocked and
+    // accounted for, so the manifest walk below would not notice it either -
+    // downloads over HTTP. This catches a call or an import written plainly,
+    // which is how one gets written; it cannot catch a name assembled at
+    // runtime, and does not claim to.
+    const network =
+      /fetch\(|axios|XMLHttpRequest|WebSocket|EventSource|new Request\(|sendBeacon|downloadAsync|uploadAsync|createDownloadResumable|openURL|openBrowserAsync|expo-updates|expo-network|expo-asset|expo-file-system|react-native-webview|netinfo|https?:\/\//i;
     const stripped = sourceFiles().map(([file, text]) => [file, text.replace(/\/\*[\s\S]*?\*\//g, '')] as const);
     expect(stripped.length).toBeGreaterThan(10);
     const hits = stripped.filter(([, code]) => network.test(code)).map(([file]) => file);
@@ -279,7 +289,12 @@ describe('what leaves the device', () => {
     expect(source.match(/['"`]https?:[^'"`]*['"`]/g)).toEqual(["'https://github.com/Platteration/multidconnect4'"]);
     expect(source.match(/openURL\([^)]*\)/g)).toEqual(['openURL(SOURCE_URL)']);
     expect(/fetch\(|axios|XMLHttpRequest|WebSocket|openBrowserAsync|expo-updates/.test(source)).toBe(false);
-    expect(pkg.dependencies).not.toHaveProperty('expo-updates');
+    // And none of those modules is a dependency to reach for in the first
+    // place: the scan reads the app's own source, so a module that is not
+    // installed is one nobody can import by accident.
+    for (const module of ['expo-updates', 'expo-network', 'expo-asset', 'expo-file-system', 'react-native-webview', '@react-native-community/netinfo']) {
+      expect(pkg.dependencies).not.toHaveProperty(module);
+    }
   });
 
   it('does not ship network access', () => {

@@ -41,7 +41,11 @@ export const RECORD_KEYS: Record<RecordKey, true> = { local: true, bot1: true, b
 /**
  * Solved puzzle ids. The bundled set is smaller than this by two orders of
  * magnitude; the cap is only here so a record the app did not write cannot
- * hand `new Set(...)` an arbitrarily long list on every launch.
+ * hand `new Set(...)` an arbitrarily long list on every launch. It has to be
+ * applied while the list is being walked, not to what the walk produced: a
+ * filter, a Set and a spread over two million stored ids all ran before the
+ * slice that was supposed to bound them, and cost 880 ms on desktop V8
+ * (worse under Hermes) at every launch before the app drew.
  */
 export const MAX_SOLVED = 1000;
 
@@ -131,7 +135,16 @@ export function cleanStats(raw: unknown, fallback: Stats): Stats {
 export function cleanProgress(raw: unknown, fallback: Progress): Progress {
   const p = fields(raw);
   if (!Array.isArray(p.solved)) return { solved: [...fallback.solved] };
-  return { solved: [...new Set(p.solved.filter((id): id is string => typeof id === 'string'))].slice(0, MAX_SOLVED) };
+  // Stops at MAX_SOLVED distinct ids rather than reading the whole list and
+  // then cutting it down: what is stored is outside input, and on the web it
+  // is outside input any other page on the origin can write.
+  const solved = new Set<string>();
+  for (const id of p.solved) {
+    if (typeof id !== 'string') continue;
+    solved.add(id);
+    if (solved.size >= MAX_SOLVED) break;
+  }
+  return { solved: [...solved] };
 }
 
 /** What the player has unlocked. */
