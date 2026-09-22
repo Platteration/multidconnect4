@@ -29,7 +29,7 @@ import { KEYS, removeKey, saveJson } from '../app/persist';
 import { MAX_SAVED_ACTIONS, toSavedGame } from '../app/savedGame';
 import { useSettings } from '../app/settings';
 import { useReduceMotion } from '../motion';
-import { codeFromUrl, webLinkFor } from '../app/links';
+import { clearCodeFromUrl, codeFromUrl, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { useProgress } from '../app/progress';
@@ -120,9 +120,16 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   // code or any web page, and loading it would throw away the game the two
   // players are in the middle of.
   const [linkedCode, setLinkedCode] = useState<string | null>(null);
+  // Whether it loaded or not: a code left in the web address bar is read
+  // again on every reload, and one that was refused is refused again just as
+  // often - or asked about again, over a game that has moved on since.
+  const acceptLinkedCode = (code: string) => {
+    loadCode(code);
+    clearCodeFromUrl();
+  };
   const offerCode = (code: string) => {
     if (linkNeedsConfirming(game.history.length)) setLinkedCode(code);
-    else loadCode(code);
+    else acceptLinkedCode(code);
   };
   const offerCodeRef = useRef(offerCode);
   offerCodeRef.current = offerCode;
@@ -568,9 +575,12 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
         onConfirm={() => {
           const code = linkedCode;
           setLinkedCode(null);
-          if (code) loadCode(code);
+          if (code) acceptLinkedCode(code);
         }}
-        onCancel={() => setLinkedCode(null)}
+        onCancel={() => {
+          setLinkedCode(null);
+          clearCodeFromUrl();
+        }}
       />
       <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <Section title="Variants (apply to new games)">
