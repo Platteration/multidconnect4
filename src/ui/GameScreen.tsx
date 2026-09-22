@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Linking, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Linking, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Action,
@@ -28,6 +28,7 @@ import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { KEYS, removeKey, saveJson } from '../app/persist';
 import { MAX_SAVED_ACTIONS, toSavedGame } from '../app/savedGame';
 import { useSettings } from '../app/settings';
+import { useReduceMotion } from '../motion';
 import { codeFromUrl, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
@@ -49,7 +50,7 @@ import { MiniBoard } from './MiniBoard';
 import { ShareModal } from './ShareModal';
 import { Button, ConfirmModal, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
-import { Row, Section, SettingsModal } from './SettingsModal';
+import { Section, SettingsModal, SwitchRow } from './SettingsModal';
 import { Theme, radius, spacing } from './theme';
 import { useTheme } from '../app/theme';
 import { useGame } from './useGame';
@@ -66,6 +67,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
+  const reduceMotion = useReduceMotion(settings.reduceMotion);
   const { recordGame } = useStats();
   const { entitlements } = useEntitlements();
   const [statsOpen, setStatsOpen] = useState(false);
@@ -502,7 +504,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
         </Text>
       </View>
       <View style={styles.map}>
-        <MultiverseMap state={state} focus={focus} targets={targets} origin={origin} onPressBoard={game.focusBoard} />
+        <MultiverseMap state={state} focus={focus} targets={targets} origin={origin} onPressBoard={game.focusBoard} reduceMotion={reduceMotion} />
       </View>
 
       </View>
@@ -570,15 +572,19 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
       />
       <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <Section title="Variants (apply to new games)">
-          <Row label="Pop out" hint="Pull one of your own discs out of the bottom row as a move.">
-            <Switch value={!!settings.variants.popOut} onValueChange={(v) => setVariant('popOut', v)} />
-          </Row>
-          <Row label="Flip" hint="Turn the board upside down as a move, gravity included.">
-            <Switch value={!!settings.variants.flip} onValueChange={(v) => setVariant('flip', v)} />
-          </Row>
-          <Row label="Strict present (5D rules)" hint="Only boards at the present must be played; boards ahead are optional and you end your turn yourself.">
-            <Switch value={!!settings.variants.strictPresent} onValueChange={(v) => setVariant('strictPresent', v)} />
-          </Row>
+          <SwitchRow
+            label="Pop out"
+            hint="Pull one of your own discs out of the bottom row as a move."
+            value={!!settings.variants.popOut}
+            onValueChange={(v) => setVariant('popOut', v)}
+          />
+          <SwitchRow label="Flip" hint="Turn the board upside down as a move, gravity included." value={!!settings.variants.flip} onValueChange={(v) => setVariant('flip', v)} />
+          <SwitchRow
+            label="Strict present (5D rules)"
+            hint="Only boards at the present must be played; boards ahead are optional and you end your turn yourself."
+            value={!!settings.variants.strictPresent}
+            onValueChange={(v) => setVariant('strictPresent', v)}
+          />
         </Section>
       </SettingsModal>
       <RulesModal visible={rulesOpen} onClose={() => setRulesOpen(false)} />

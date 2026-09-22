@@ -51,13 +51,15 @@ interface Props {
   /** The board the held disc comes from, if any. */
   origin: BoardRef | null;
   onPressBoard: (ref: BoardRef) => void;
+  /** Skip the decorative flight and jump the scroll: the player, or their device, asked for less motion. */
+  reduceMotion?: boolean;
 }
 
 /**
  * The map of every timeline. Time runs left to right (one slot per turn) and
  * each timeline is a row, starting at the turn where it branched off.
  */
-export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: Props) {
+export function MultiverseMap({ state, focus, targets, origin, onPressBoard, reduceMotion = false }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const lastTurn = maxTurn(state);
@@ -126,7 +128,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
   const travel = state.lastAction?.type === 'travel' && state.lastCreated.length === 2 ? state.lastAction : null;
   const flightKey = travel ? `${state.timelines.length}-${state.lastCreated[1].timeline}-${state.lastCreated[1].turn}` : null;
   useEffect(() => {
-    if (!travel) return;
+    if (!travel || reduceMotion) return;
     const from = travel.from.timeline;
     const fromTurn = state.lastCreated[0].turn - 1;
     const to = state.lastCreated[1];
@@ -146,10 +148,10 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard }: P
   useEffect(() => {
     if (!viewport.width) return;
     const x = (focus.turn + 1) * SLOT + SLOT / 2 - viewport.width / 2;
-    horizontal.current?.scrollTo({ x: Math.max(0, x), animated: true });
+    horizontal.current?.scrollTo({ x: Math.max(0, x), animated: !reduceMotion });
     const y = focus.timeline * ROW + ROW / 2 - viewport.height / 2;
-    vertical.current?.scrollTo({ y: Math.max(0, y), animated: true });
-  }, [focus.timeline, focus.turn, viewport]);
+    vertical.current?.scrollTo({ y: Math.max(0, y), animated: !reduceMotion });
+  }, [focus.timeline, focus.turn, viewport, reduceMotion]);
 
   return (
     <ScrollView

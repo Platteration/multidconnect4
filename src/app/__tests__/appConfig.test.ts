@@ -78,23 +78,24 @@ const pluginOptions = (name: string) => {
   return Array.isArray(entry) ? entry[1] || {} : {};
 };
 
-/** Every source file's text, outside the tests. */
-const sourceText = () => {
-  const out: string[] = [];
+/** Every source file the app ships, outside the tests: its path from the root, and its text. */
+const sourceFiles = (): [string, string][] => {
+  const out: [string, string][] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name !== '__tests__') walk(full);
       } else if (/\.tsx?$/.test(entry.name)) {
-        out.push(fs.readFileSync(full, 'utf8'));
+        out.push([path.relative(root, full), fs.readFileSync(full, 'utf8')]);
       }
     }
   };
   walk(path.join(root, 'src'));
-  for (const file of ['App.tsx', 'index.ts']) out.push(fs.readFileSync(path.join(root, file), 'utf8'));
-  return out.join('\n');
+  for (const file of ['App.tsx', 'index.ts']) out.push([file, fs.readFileSync(path.join(root, file), 'utf8')]);
+  return out;
 };
+const sourceText = () => sourceFiles().map(([, text]) => text).join('\n');
 
 /**
  * Every AndroidManifest.xml under `dir`. `isDirectory()` is false for a
@@ -263,9 +264,21 @@ describe('what leaves the device', () => {
     // code goes out through Share.share and the clipboard; none of those
     // opens a socket. A URL in a doc comment is not a request, so block
     // comments are set aside before looking for one.
-    const code = sourceText().replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(code).not.toMatch(/fetch\(|axios|XMLHttpRequest|WebSocket|openURL|openBrowserAsync|expo-updates/);
-    expect(code).not.toMatch(/https?:\/\//);
+    //
+    // The one URL the app carries is the About card's source link, which
+    // Linking hands to the browser: no socket of the app's own. It is pinned
+    // by file and by value, so a second URL, or that one anywhere else, or
+    // anything but openURL reaching it, is still a finding.
+    const network = /fetch\(|axios|XMLHttpRequest|WebSocket|openURL|openBrowserAsync|expo-updates|https?:\/\//;
+    const stripped = sourceFiles().map(([file, text]) => [file, text.replace(/\/\*[\s\S]*?\*\//g, '')] as const);
+    expect(stripped.length).toBeGreaterThan(10);
+    const hits = stripped.filter(([, code]) => network.test(code)).map(([file]) => file);
+    const about = path.join('src', 'ui', 'SettingsModal.tsx');
+    expect(hits).toEqual([about]);
+    const source = stripped.find(([file]) => file === about)?.[1] ?? '';
+    expect(source.match(/['"`]https?:[^'"`]*['"`]/g)).toEqual(["'https://github.com/Platteration/multidconnect4'"]);
+    expect(source.match(/openURL\([^)]*\)/g)).toEqual(['openURL(SOURCE_URL)']);
+    expect(/fetch\(|axios|XMLHttpRequest|WebSocket|openBrowserAsync|expo-updates/.test(source)).toBe(false);
     expect(pkg.dependencies).not.toHaveProperty('expo-updates');
   });
 
