@@ -56,8 +56,10 @@ describe('the origin of a picked-up disc', () => {
     expect(travelOrigin(branched, { kind: 'none' }, false)).toBeNull();
   });
 
-  it('is nothing while replaying a state that never had that timeline', () => {
-    // The replayed state has one timeline; the held disc is on the second.
+  it('is nothing while replaying, even a state that has that timeline', () => {
+    // The state on screen may be the live one; the origin is still not read.
+    expect(travelOrigin(branched, holding, true)).toBeNull();
+    // And the replayed state has one timeline; the held disc is on the second.
     expect(newGame().timelines).toHaveLength(1);
     expect(() => travelOrigin(newGame(), holding, true)).not.toThrow();
     expect(travelOrigin(newGame(), holding, true)).toBeNull();

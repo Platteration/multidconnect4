@@ -131,7 +131,8 @@ src/engine/types.ts        players, board references, turn parity
 src/engine/board.ts        one Connect Four board: gravity, removal, spinning, lines
 src/engine/multiverse.ts   timelines, pending boards, time travel, rules, win/draw
 src/engine/bot.ts          the three-level computer opponent
-src/engine/__tests__/      unit tests for the rules, bots, puzzles, and game codes
+src/engine/__tests__/      unit tests for the rules, bots, puzzles, game codes
+                           and the links a code arrives on
 src/puzzles/index.ts       the puzzle set (each verified by a test)
 src/app/settings.tsx       persisted settings (theme, motion, skin, sound, variants)
 src/motion.ts              the reduce-motion hook (device preference or override)
@@ -139,14 +140,24 @@ src/app/theme.tsx          resolves settings into the palette screens draw with
 src/app/persist.ts         every storage key, the key migration, AsyncStorage helpers
 src/app/validate.ts        what a stored record may contain; every read goes through it
 src/app/share.ts           game codes for play by message (app/base64.ts)
+src/app/savedGame.ts       the game in storage: actions out, a replay back in
+src/app/links.ts           deep links carrying a game code, and clearing one
+src/app/__tests__/         the app config, the settings contract, the validator
+                           and the game read back out of storage
 src/app/purchases.ts       the store seam; app/entitlements.tsx gates premium looks
 src/app/feedback.ts        haptics and sounds (app/sound.ts)
 src/ui/useGame.ts          game controller hook: history/undo, selection, bot turns
+src/ui/guards.ts           the screen's pure guards: the bot's turn, the travel
+                           origin, link confirmation, cell labels
 src/ui/GameScreen.tsx      screen layout, status text, bot loop, replay
 src/ui/DiscBoard.tsx       the big tappable board with the falling-disc animation
 src/ui/MiniBoard.tsx       board thumbnails for the map
 src/ui/MultiverseMap.tsx   the timeline map (rows = timelines, columns = turns)
 src/ui/*Modal.tsx          menu, rules, settings, new game, puzzles, share, extras
+src/ui/ErrorBoundary.tsx   the fallback for a render that throws; its button
+                           clears the saved game
+src/ui/__tests__/          the map's windowing, the board, the share sheet, the
+                           error boundary and the guards
 ```
 
 The engine is pure TypeScript with no React dependency, so the rules can be

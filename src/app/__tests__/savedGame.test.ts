@@ -235,4 +235,84 @@ describe('a saved game that cannot be trusted', () => {
     const nonsense = { ...saved, setup: { mode: 'bot', bot: { level: 99, player: 'red' } } };
     expect(restoreSavedGame(nonsense)!.setup).toEqual({ mode: 'local' });
   });
+
+  it('replays an older save rather than trusting the states in it', () => {
+    // A v1/v2 record holds whole states, and storage is as much outside input
+    // as a share code is. Only the actions are read out of them; the states
+    // are rebuilt by the engine, so a record full of nonsense is a game that
+    // cannot be replayed rather than a value the first render chokes on.
+    const restored = restoreSavedGame({
+      version: 2,
+      history: [{ timelines: 'nope', rules: 'not-rules', cells: 7 }],
+      setup: LOCAL,
+    });
+    expect(restored).not.toBeNull();
+    expect(restored!.history).toHaveLength(1);
+    expect(restored!.history[0]).toEqual(newGame());
+    expect(mandatoryTimelines(restored!.history[0])).toHaveLength(1);
+  });
+});
+
+/**
+ * The setup is read out of the record the same way the actions are. It names
+ * the bot's search depth and the side it plays, decides whether the computer
+ * plays at all, and names a puzzle - and on the web the record lives in
+ * localStorage on an origin this app does not have to itself.
+ */
+describe('the setup a save names', () => {
+  // An empty action list, so what the setup is read as is all that decides
+  // what comes back: it replays on a puzzle's position and on a fresh board
+  // alike, and a game that does not replay is refused before the setup is
+  // worth asking about.
+  const saved = (setup: unknown) => restoreSavedGame({ version: 3, rules: {}, setup, actions: [] })!.setup;
+
+  it('is a local game unless the record names a mode this app has', () => {
+    expect(saved({ mode: 'nonsense' })).toEqual({ mode: 'local' });
+    expect(saved(null)).toEqual({ mode: 'local' });
+    expect(saved(undefined)).toEqual({ mode: 'local' });
+    expect(saved(42)).toEqual({ mode: 'local' });
+  });
+
+  it('takes no bot level from a name every object already carries', () => {
+    // The level picks the search the bot runs and indexes the names the menu
+    // shows, so a stored value does not get to name it: '__proto__' as a
+    // level finds Object.prototype on a plain table, and `toString` a
+    // function. Built through JSON.parse so '__proto__' is an own key.
+    for (const name of Object.getOwnPropertyNames(Object.prototype)) {
+      const setup = JSON.parse(`{"mode":"bot","bot":{"${name}":1,"level":"${name}","player":0}}`);
+      expect(saved(setup)).toEqual({ mode: 'local' });
+    }
+  });
+
+  it('drops a bot the mode does not have, rather than handing the game to the computer', () => {
+    // `mode` is what says whether the computer plays, but useGame reads
+    // setup.bot on its own (`humanTurn`), and so does the screen's bot loop.
+    // A local game carrying a bot was therefore a local game the computer
+    // started playing, for the side the two players were sharing.
+    expect(saved({ mode: 'local', bot: { level: 3, player: 0 } })).toEqual({ mode: 'local' });
+    expect(saved({ mode: 'local', bot: { level: 3, player: 0 } }).bot).toBeUndefined();
+    // A bot game keeps the bot that is playing it.
+    expect(saved({ mode: 'bot', bot: { level: 3, player: 0 } })).toEqual({ mode: 'bot', bot: { level: 3, player: 0 } });
+  });
+
+  it('keeps a puzzle only with everything a puzzle needs', () => {
+    const puzzle = PUZZLES[0];
+    const whole = {
+      mode: 'puzzle',
+      puzzleId: puzzle.id,
+      player: puzzle.player,
+      within: puzzle.within,
+      bot: { level: 3, player: puzzle.player === 0 ? 1 : 0 },
+    };
+    expect(saved(whole)).toEqual(whole);
+    // Each field on its own: a puzzle missing any of them is not a puzzle the
+    // screen can draw - the move counter reads `within` and `player`, and the
+    // bot answers for the other side - so it comes back as a plain game
+    // rather than as a puzzle with a hole in it.
+    for (const field of ['puzzleId', 'player', 'within', 'bot'] as const) {
+      const partial: Record<string, unknown> = { ...whole };
+      delete partial[field];
+      expect(saved(partial)).toEqual({ mode: 'local' });
+    }
+  });
 });

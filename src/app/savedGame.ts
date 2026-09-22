@@ -130,9 +130,15 @@ function cleanSetup(value: unknown): GameSetup {
   const mode = s.mode === 'bot' || s.mode === 'puzzle' ? s.mode : 'local';
   const bot = s.bot as { level?: unknown; player?: unknown } | undefined;
   const setup: GameSetup = { mode };
+  // `mode` is what decides whether the computer plays, so a stored bot in a
+  // mode that has none is dropped with it: useGame reads setup.bot on its own
+  // (`humanTurn`), and so does the screen's bot loop, so keeping one turned a
+  // game the app calls local into one the computer plays for a side the two
+  // players were sharing.
+  if (mode === 'local') return { mode };
   if (bot && typeof bot === 'object' && (bot.level === 1 || bot.level === 2 || bot.level === 3) && isPlayer(bot.player)) {
     setup.bot = { level: bot.level, player: bot.player };
-  } else if (mode !== 'local') {
+  } else {
     // A bot game or a puzzle without a usable opponent is not restorable.
     return DEFAULT_SETUP;
   }
