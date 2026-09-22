@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { EntitlementsProvider } from './src/app/entitlements';
-import { keys, loadJson, removeKey } from './src/app/persist';
+import { KEYS, loadJson, removeKey } from './src/app/persist';
 import { ProgressProvider } from './src/app/progress';
 import { StatsProvider } from './src/app/stats';
 import { SettingsProvider, useSettings } from './src/app/settings';
@@ -26,11 +26,11 @@ function Root() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    loadJson<unknown>(keys.game).then((v) => {
+    loadJson<unknown>(KEYS.game).then((v) => {
       const restored = v ? restoreSavedGame(v) : null;
       if (v && !restored) {
         // A stored game that cannot be replayed is not one this app can draw.
-        void removeKey(keys.game);
+        void removeKey(KEYS.game);
         setNotice('The game that was saved could not be read, so this is a new one.');
       } else if (restored?.truncated) {
         setNotice(`That game was longer than this app can load, so it has come back at move ${MAX_SAVED_ACTIONS}.`);
@@ -68,7 +68,7 @@ export default function App() {
                 <ErrorBoundary
                   key={generation}
                   onReset={() => {
-                    void removeKey(keys.game);
+                    void removeKey(KEYS.game);
                     setGeneration((g) => g + 1);
                   }}
                 >

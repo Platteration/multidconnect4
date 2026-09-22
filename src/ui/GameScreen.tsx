@@ -25,7 +25,7 @@ import {
 } from '../engine';
 import { useEntitlements } from '../app/entitlements';
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
-import { keys, removeKey, saveJson } from '../app/persist';
+import { KEYS, removeKey, saveJson } from '../app/persist';
 import { MAX_SAVED_ACTIONS, toSavedGame } from '../app/savedGame';
 import { useSettings } from '../app/settings';
 import { codeFromUrl, webLinkFor } from '../app/links';
@@ -212,10 +212,10 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   useEffect(() => {
     const timer = setTimeout(() => {
       if (game.history.length > 1) {
-        void saveJson(keys.game, toSavedGame(game.history, game.setup)).then((ok) => setSaveFailed(!ok));
+        void saveJson(KEYS.game, toSavedGame(game.history, game.setup)).then((ok) => setSaveFailed(!ok));
       } else {
         setSaveFailed(false);
-        void removeKey(keys.game);
+        void removeKey(KEYS.game);
       }
     }, 250);
     return () => clearTimeout(timer);
