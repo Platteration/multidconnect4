@@ -67,6 +67,22 @@ export function toSavedGame(history: GameState[], setup: GameSetup): SavedGame {
   return { version: SAVE_VERSION, rules: history[0].rules, setup, actions: actionsOf(history) };
 }
 
+/** What the autosave should do with the game as it stands. */
+export type SaveDecision = { kind: 'write'; payload: SavedGame } | { kind: 'clear' };
+
+/**
+ * A game nobody has moved in yet is not worth keeping, and a finished one is
+ * worse than not worth keeping: it comes back at the next launch as a game
+ * that is already over, and the screen folds each finished game it is handed
+ * into the record - one more played, and one more won, every time the app is
+ * opened. Both clear the record rather than write one.
+ */
+export function saveDecision(history: GameState[], setup: GameSetup): SaveDecision {
+  if (history.length <= 1) return { kind: 'clear' };
+  if (history[history.length - 1].status !== 'playing') return { kind: 'clear' };
+  return { kind: 'write', payload: toSavedGame(history, setup) };
+}
+
 /**
  * Rebuild a stored game, or null when the value cannot be trusted. Older
  * saves (which held whole states) are read by taking the action out of each

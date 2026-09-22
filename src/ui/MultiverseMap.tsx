@@ -71,8 +71,11 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard, red
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   // Which row and which turn sit at the top-left corner. Kept as indices, not
   // as pixel offsets, so a scroll re-renders the map when it crosses into the
-  // next board rather than on every frame.
-  const [corner, setCorner] = useState({ row: 0, turn: 0 });
+  // next board rather than on every frame. Null until the map has reported a
+  // scroll position of its own: it is the platform's scroll events that move
+  // this, and a corner of (0, 0) that nothing has scrolled to is not a place
+  // the map is looking at (see `anchor`).
+  const [corner, setCorner] = useState<{ row: number; turn: number } | null>(null);
 
   // Only the boards near the corner are mounted. Every board that has ever
   // existed is a thumbnail of rows x cols views, and how many boards exist is
@@ -80,24 +83,39 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard, red
   // all would mount as many native views as whoever sent the code chose.
   const viewWidth = viewport.width || UNMEASURED.width;
   const viewHeight = viewport.height || UNMEASURED.height;
+  const rowsShown = Math.ceil(viewHeight / ROW);
+  const turnsShown = Math.ceil(viewWidth / SLOT);
+  // Where to window from before the map has scrolled at all: around the
+  // focused board, which is always inside the state. The corner is only ever
+  // moved by the platform's own scroll events, and before the first layout
+  // there has been no scroll event and no viewport to centre the scroll in
+  // either - so a game restored with its focus deep in the multiverse used to
+  // sit at (0, 0) looking at an empty region until a layout arrived.
+  const anchor = corner ?? {
+    row: Math.max(0, focus.timeline - Math.floor(rowsShown / 2)),
+    turn: Math.max(0, focus.turn - Math.floor(turnsShown / 2)),
+  };
   // An undo can take away the timeline or the turns being looked at, and the
   // scroller only tells us where it ended up afterwards, so the corner is
   // clamped here rather than trusted.
-  const topRow = Math.min(corner.row, Math.max(0, state.timelines.length - 1));
-  const leftTurn = Math.min(corner.turn, lastTurn + 1);
+  const topRow = Math.min(anchor.row, Math.max(0, state.timelines.length - 1));
+  const leftTurn = Math.min(anchor.turn, lastTurn + 1);
   const firstRow = Math.max(0, topRow - OVERSCAN);
-  const rows = state.timelines.slice(firstRow, topRow + Math.ceil(viewHeight / ROW) + OVERSCAN + 1);
+  const rows = state.timelines.slice(firstRow, topRow + rowsShown + OVERSCAN + 1);
   const lastRow = firstRow + rows.length - 1;
   // A board for turn t is drawn at (t + 1) * SLOT, one slot in from the left.
   const firstTurn = Math.max(0, leftTurn - 1 - OVERSCAN);
-  const finalTurn = Math.min(lastTurn, leftTurn + Math.ceil(viewWidth / SLOT) + OVERSCAN);
+  const finalTurn = Math.min(lastTurn, leftTurn + turnsShown + OVERSCAN);
+  // The first event on either axis takes the other axis from the window that
+  // was being drawn until then, so reporting one scroll does not move the map
+  // off the board it was pointed at.
   const onScrollX = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const turn = Math.max(0, Math.floor(e.nativeEvent.contentOffset.x / SLOT));
-    setCorner((c) => (c.turn === turn ? c : { ...c, turn }));
+    setCorner((c) => (c && c.turn === turn ? c : { row: c?.row ?? anchor.row, turn }));
   };
   const onScrollY = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const row = Math.max(0, Math.floor(e.nativeEvent.contentOffset.y / ROW));
-    setCorner((c) => (c.row === row ? c : { ...c, row }));
+    setCorner((c) => (c && c.row === row ? c : { turn: c?.turn ?? anchor.turn, row }));
   };
 
   // A branch line runs from the row it came from down to its own, so it can
@@ -145,11 +163,14 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard, red
   const travellerColor = travel ? colors.players[playerToMoveAt(state.lastCreated[0].turn - 1)] : colors.travel;
 
   // Keep the focused board in view as the player jumps around the multiverse.
+  // An unmeasured viewport uses the same guess the window above does rather
+  // than skipping the scroll: the scroll is what asks the platform for the
+  // event that puts the window back where the content is, and skipping it
+  // left a restored game looking at a corner of the multiverse it is not in.
   useEffect(() => {
-    if (!viewport.width) return;
-    const x = (focus.turn + 1) * SLOT + SLOT / 2 - viewport.width / 2;
+    const x = (focus.turn + 1) * SLOT + SLOT / 2 - (viewport.width || UNMEASURED.width) / 2;
     horizontal.current?.scrollTo({ x: Math.max(0, x), animated: !reduceMotion });
-    const y = focus.timeline * ROW + ROW / 2 - viewport.height / 2;
+    const y = focus.timeline * ROW + ROW / 2 - (viewport.height || UNMEASURED.height) / 2;
     vertical.current?.scrollTo({ y: Math.max(0, y), animated: !reduceMotion });
   }, [focus.timeline, focus.turn, viewport, reduceMotion]);
 

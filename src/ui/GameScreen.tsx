@@ -26,7 +26,7 @@ import {
 import { useEntitlements } from '../app/entitlements';
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { KEYS, removeKey, saveJson } from '../app/persist';
-import { MAX_SAVED_ACTIONS, toSavedGame } from '../app/savedGame';
+import { MAX_SAVED_ACTIONS, saveDecision } from '../app/savedGame';
 import { useSettings } from '../app/settings';
 import { useReduceMotion } from '../motion';
 import { clearCodeFromUrl, codeFromUrl, webLinkFor } from '../app/links';
@@ -37,7 +37,7 @@ import { decodeGame, shareCodeFor } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { DiscBoard } from './DiscBoard';
-import { botShouldMove, linkNeedsConfirming, travelOrigin } from './guards';
+import { botShouldMove, gameOverVisible, linkNeedsConfirming, travelOrigin } from './guards';
 import { MenuModal } from './MenuModal';
 import { NewGameModal } from './NewGameModal';
 import { PuzzleResultModal } from './PuzzleResultModal';
@@ -51,7 +51,7 @@ import { ShareModal } from './ShareModal';
 import { Button, ConfirmModal, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
 import { Section, SettingsModal, SwitchRow } from './SettingsModal';
-import { Theme, radius, spacing } from './theme';
+import { Theme, headerTextStyles, radius, spacing } from './theme';
 import { useTheme } from '../app/theme';
 import { useGame } from './useGame';
 
@@ -220,8 +220,9 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   const pastReload = game.history.length - 1 > MAX_SAVED_ACTIONS;
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (game.history.length > 1) {
-        void saveJson(KEYS.game, toSavedGame(game.history, game.setup)).then((ok) => setSaveFailed(!ok));
+      const decision = saveDecision(game.history, game.setup);
+      if (decision.kind === 'write') {
+        void saveJson(KEYS.game, decision.payload).then((ok) => setSaveFailed(!ok));
       } else {
         setSaveFailed(false);
         void removeKey(KEYS.game);
@@ -230,9 +231,11 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
     return () => clearTimeout(timer);
   }, [game.history, game.setup]);
 
+  // The dismissal belongs to the live game too: cleared by the state on
+  // screen, a replay put it back just by walking through 'playing' states.
   useEffect(() => {
-    if (state.status === 'playing') setGameOverDismissed(false);
-  }, [state.status]);
+    if (liveState.status === 'playing') setGameOverDismissed(false);
+  }, [liveState.status]);
 
   // Size cells so the board fits either way round (7 wide or 7 tall).
   // A window wider than it is tall puts the map beside the board. On a device
@@ -629,7 +632,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
       />
       <GameOverModal
         state={state}
-        visible={!puzzle && state.status !== 'playing' && !gameOverDismissed}
+        visible={gameOverVisible(liveState, !!puzzle, replaying, gameOverDismissed)}
         onRestart={() => {
           setGameOverDismissed(true);
           setNewGameOpen(true);
@@ -658,8 +661,9 @@ const makeStyles = (colors: Theme) =>
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
   },
-  title: { color: colors.text, fontSize: 18, fontWeight: '900', letterSpacing: 0.3 },
-  subtitle: { color: colors.textMuted, fontSize: 11 },
+  // title and subtitle: see headerTextStyles in theme.ts, which is where a
+  // test can check they are readable on the background they sit on.
+  ...headerTextStyles(colors),
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',

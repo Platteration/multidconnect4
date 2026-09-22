@@ -24,6 +24,18 @@ export function botShouldMove(opts: {
 }
 
 /**
+ * Whether the game-over sheet should be showing. Like the bot, it reads the
+ * LIVE game: the replay of a finished game walks back through states whose
+ * status is 'playing', so reading the replayed state cleared the dismissal on
+ * the way through and popped the sheet again over the replay bar at the end.
+ * A puzzle has a result sheet of its own.
+ */
+export function gameOverVisible(live: GameState, puzzle: boolean, replaying: boolean, dismissed: boolean): boolean {
+  if (puzzle || replaying || dismissed) return false;
+  return live.status !== 'playing';
+}
+
+/**
  * The board a picked-up disc would leave, so the map can mark it. Null while
  * replaying: the state on screen is an earlier one that may not have the
  * timeline the disc is held on, and asking for a timeline that does not exist

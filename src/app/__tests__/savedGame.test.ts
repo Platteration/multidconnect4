@@ -1,7 +1,7 @@
 import { Action, GameState, applyAction, mandatoryTimelines, newGame } from '../../engine';
 import { enumerateActions } from '../../engine/bot';
 import { PUZZLES } from '../../puzzles';
-import { MAX_SAVED_ACTIONS, restoreSavedGame, toSavedGame } from '../savedGame';
+import { MAX_SAVED_ACTIONS, restoreSavedGame, saveDecision, toSavedGame } from '../savedGame';
 import { MAX_BOARDS, MAX_TIMELINES, withinStateLimits } from '../share';
 import { GameSetup } from '../setup';
 
@@ -48,6 +48,38 @@ function longBranchingGame(): GameState[] {
 }
 
 const LOCAL: GameSetup = { mode: 'local' };
+
+/** Four in the first column against a pair in the second: red wins on move 7. */
+function wonGame(): GameState[] {
+  const actions = [drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1), drop(0, 0)];
+  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame()]);
+}
+
+describe('what the autosave writes', () => {
+  it('writes the game that is being played', () => {
+    const history = sampleHistory();
+    const decision = saveDecision(history, LOCAL);
+    expect(decision).toEqual({ kind: 'write', payload: toSavedGame(history, LOCAL) });
+  });
+
+  it('has nothing to save before the first move', () => {
+    expect(saveDecision([newGame()], LOCAL)).toEqual({ kind: 'clear' });
+  });
+
+  it('does not keep a finished game, which would be recorded again on the next launch', () => {
+    // A finished game restored at launch is a finished game the screen has
+    // not recorded yet, so it folds it into the record - one more played, and
+    // one more won, every time the app is opened. The game is over: there is
+    // nothing left in it to come back to.
+    const won = wonGame();
+    expect(won[won.length - 1].status).toBe('won');
+    // A game still going is written; the moment it ends the record is cleared.
+    expect(saveDecision(won.slice(0, -1), LOCAL).kind).toBe('write');
+    expect(saveDecision(won, LOCAL)).toEqual({ kind: 'clear' });
+    const drawn = sampleHistory().map((state) => ({ ...state, status: 'draw' as const }));
+    expect(saveDecision(drawn, LOCAL)).toEqual({ kind: 'clear' });
+  });
+});
 
 describe('the game in storage', () => {
   it('rebuilds exactly the game that was saved', () => {

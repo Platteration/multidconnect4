@@ -1,5 +1,5 @@
 import { Action, GameState, applyAction, newGame } from '../../engine';
-import { botShouldMove, cellLabel, linkNeedsConfirming, travelOrigin } from '../guards';
+import { botShouldMove, cellLabel, gameOverVisible, linkNeedsConfirming, travelOrigin } from '../guards';
 import type { Selection } from '../useGame';
 
 const drop = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
@@ -145,6 +145,53 @@ describe('a saved game that did not all come back', () => {
     // not after it: the notice alone would repeat the loss every session.
     expect(screen).toMatch(/const pastReload = game\.history\.length - 1 > MAX_SAVED_ACTIONS;/);
     expect(screen).toMatch(/pastReload\s*\?/);
+  });
+});
+
+describe('the game-over sheet', () => {
+  const playing = newGame();
+  const finished: GameState = { ...playing, status: 'won' };
+
+  it('shows once the live game is over', () => {
+    expect(gameOverVisible(finished, false, false, false)).toBe(true);
+    expect(gameOverVisible(playing, false, false, false)).toBe(false);
+  });
+
+  it('stays away for the whole of a replay', () => {
+    // 'Watch the replay' dismisses the sheet and seeks to the start, and every
+    // state before the last one is still 'playing', which cleared the
+    // dismissal again. The sheet came back over the replay bar because of it,
+    // so replaying is enough on its own to keep it away.
+    expect(gameOverVisible(finished, false, true, true)).toBe(false);
+    expect(gameOverVisible(finished, false, true, false)).toBe(false);
+  });
+
+  it('does not come back once dismissed, and never shows for a puzzle', () => {
+    // A puzzle has its own result sheet.
+    expect(gameOverVisible(finished, true, false, false)).toBe(false);
+    expect(gameOverVisible(finished, false, false, true)).toBe(false);
+  });
+
+  it('is asked about the live game, and so is its dismissal', () => {
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/visible=\{gameOverVisible\(liveState, !!puzzle, replaying, gameOverDismissed\)\}/);
+    // The dismissal is cleared by the live game starting over, not by the
+    // replay walking back through states that are still being played.
+    expect(src).toMatch(/if \(liveState\.status === 'playing'\) setGameOverDismissed\(false\);/);
+    expect(src).not.toMatch(/if \(state\.status === 'playing'\) setGameOverDismissed/);
+  });
+});
+
+describe('what the screen saves', () => {
+  it('asks for the decision rather than writing whatever it holds', () => {
+    // The autosave used to write any history with a move in it, which kept a
+    // finished game - restored at the next launch as a game that was already
+    // over, and folded into the record again for it.
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/const decision = saveDecision\(game\.history, game\.setup\);/);
+    expect(src).toMatch(/if \(decision\.kind === 'write'\)/);
+    expect(src).not.toMatch(/toSavedGame\(game\.history/);
+    expect(src).not.toMatch(/if \(game\.history\.length > 1\) \{/);
   });
 });
 
