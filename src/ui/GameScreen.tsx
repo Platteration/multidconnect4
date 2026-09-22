@@ -227,8 +227,10 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
     if (state.status === 'playing') setGameOverDismissed(false);
   }, [state.status]);
 
-  // Size cells so the board fits in either orientation (7 wide or 7 tall).
-  // Wide screens (tablets, phones on their side) put the map beside the board.
+  // Size cells so the board fits either way round (7 wide or 7 tall).
+  // A window wider than it is tall puts the map beside the board. On a device
+  // the app is locked to portrait (app.json), so that is the web build in a
+  // wide browser window, not a phone on its side.
   const landscape = width > height * 1.15;
   // On a short wide screen the board column scrolls so the hint stays reachable.
   const Left = landscape ? ScrollView : View;
