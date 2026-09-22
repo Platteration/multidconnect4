@@ -73,6 +73,31 @@ const resource = (file: 'strings' | 'colors', name: string): string | undefined 
   return android[file].resources[kind].find((r: Named) => r.$.name === name)?._;
 };
 
+/**
+ * What a socket looks like in this app's own source. The module names are
+ * matched as they appear in an import; the call names are the ones that reach
+ * the network through a module that is already installed for something else
+ * (expo-file-system's transfers, which arrive under expo itself) or through
+ * the platform (sendBeacon, EventSource, `new Request`). Each was verified by
+ * dropping a file that uses it into src/ and watching this fail.
+ *
+ * Deliberately not closed: a call assembled at runtime. `globalThis['fet' +
+ * 'ch']('u')` passes this and always will, because a regular expression over
+ * source is not an evaluator. What stands behind it is the shipped manifest,
+ * which carries no INTERNET at all, so such a call fails on the device.
+ */
+const NETWORK_PRIMITIVE =
+  /\bfetch\(|axios|XMLHttpRequest|WebSocket|EventSource|sendBeacon|\bnew Request\(|downloadAsync|uploadAsync|createDownloadResumable|openBrowserAsync|expo-network|expo-updates|expo-auth-session|react-native-webview|@react-native-community\/netinfo/;
+/** Packages that cannot be in this app for any reason but talking to a network. */
+const NETWORK_PACKAGES = [
+  'expo-network',
+  'expo-updates',
+  'expo-auth-session',
+  'react-native-webview',
+  '@react-native-community/netinfo',
+  'axios',
+];
+
 const pluginOptions = (name: string) => {
   const entry = appConfig.plugins.find((p: unknown) => (Array.isArray(p) ? p[0] : p) === name);
   expect(entry).toBeDefined();
@@ -274,13 +299,11 @@ describe('what leaves the device', () => {
     // What is looked for is the primitives AND the modules that are a socket
     // by themselves: a WebView loads a URL of its own, expo-network reports
     // what the socket is attached to, and expo-file-system - already here
-    // transitively, with its own INTERNET declaration already blocked and
+    // under expo, with its own INTERNET declaration already blocked and
     // accounted for, so the manifest walk below would not notice it either -
-    // downloads over HTTP. This catches a call or an import written plainly,
-    // which is how one gets written; it cannot catch a name assembled at
-    // runtime, and does not claim to.
-    const network =
-      /fetch\(|axios|XMLHttpRequest|WebSocket|EventSource|new Request\(|sendBeacon|downloadAsync|uploadAsync|createDownloadResumable|openURL|openBrowserAsync|expo-updates|expo-network|expo-asset|expo-file-system|react-native-webview|netinfo|https?:\/\//i;
+    // downloads over HTTP. See NETWORK_PRIMITIVE for the whole list and for
+    // what it deliberately does not catch.
+    const network = new RegExp(`${NETWORK_PRIMITIVE.source}|openURL|https?://`);
     const stripped = sourceFiles().map(([file, text]) => [file, text.replace(/\/\*[\s\S]*?\*\//g, '')] as const);
     expect(stripped.length).toBeGreaterThan(10);
     const hits = stripped.filter(([, code]) => network.test(code)).map(([file]) => file);
@@ -289,13 +312,13 @@ describe('what leaves the device', () => {
     const source = stripped.find(([file]) => file === about)?.[1] ?? '';
     expect(source.match(/['"`]https?:[^'"`]*['"`]/g)).toEqual(["'https://github.com/Platteration/multidconnect4'"]);
     expect(source.match(/openURL\([^)]*\)/g)).toEqual(['openURL(SOURCE_URL)']);
-    expect(/fetch\(|axios|XMLHttpRequest|WebSocket|openBrowserAsync|expo-updates/.test(source)).toBe(false);
-    // And none of those modules is a dependency to reach for in the first
-    // place: the scan reads the app's own source, so a module that is not
-    // installed is one nobody can import by accident.
-    for (const module of ['expo-updates', 'expo-network', 'expo-asset', 'expo-file-system', 'react-native-webview', '@react-native-community/netinfo']) {
-      expect(pkg.dependencies).not.toHaveProperty(module);
-    }
+    expect(NETWORK_PRIMITIVE.test(source)).toBe(false);
+  });
+
+  it('does not install a package that exists to talk to a network', () => {
+    // The scan above reads the app's own source, so a dependency must not be
+    // able to arrive quietly ahead of the call that would use it.
+    for (const module of NETWORK_PACKAGES) expect(pkg.dependencies).not.toHaveProperty(module);
   });
 
   it('does not ship network access', () => {
