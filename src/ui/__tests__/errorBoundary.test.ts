@@ -1,10 +1,12 @@
 /**
- * The last line of defence, and what its one button does. A render that throws
+ * The last line of defence, and what its two ways out do. A render that throws
  * unmounts the whole app, and when the value that threw is the saved game it
- * does so again at every launch; the boundary's "Start a new game" has to be
- * the way out of that - and out of nothing else. The record, the settings and
- * the puzzle progress are not what crashed, so the reset removes the game key
- * alone, and then remounts the tree so the fresh game actually draws.
+ * does so again at every launch - so one way out has to clear that value. It
+ * is not the first one offered: drawing again costs nothing and is what a
+ * momentary failure needs, and clearing spends the only copy of a game that
+ * may have taken an hour, so it is confirmed. What it clears is the game key
+ * and nothing else - the record, the settings and the puzzle progress are not
+ * what crashed - and the tree is remounted so the fresh game actually draws.
  *
  * The sibling game's error-boundary test, against this app's App.tsx. The
  * saved game it seeds is a real one: a record this app cannot read is removed
@@ -91,6 +93,19 @@ function Thrower(): never {
   throw new Error('a render that throws');
 }
 
+/** A child that throws until the flag is cleared, like a passing failure. */
+function Sometimes() {
+  if (mockScreen.broken) throw new Error('a render that throws');
+  return React.createElement(Text, null, 'drawn this time');
+}
+
+/** The labels on the fallback's buttons, in the order they are offered. */
+const labels = (tree: ReactTestRenderer): string[] =>
+  tree.root
+    .findAll((node) => node.props.accessibilityRole === 'button' && typeof node.props.onPress === 'function')
+    .map((node) => node.findAll((n) => n.type === 'Text').map((n) => n.props.children)[0])
+    .filter((label): label is string => typeof label === 'string');
+
 /** A boundary around one child. (The props type lists `children`, which is passed as the child.) */
 const boundary = (onReset: () => void, child: React.ReactNode) =>
   React.createElement(ErrorBoundary, { onReset } as React.ComponentProps<typeof ErrorBoundary>, child);
@@ -128,18 +143,50 @@ describe('the error boundary', () => {
     act(() => tree.unmount());
   });
 
-  it('replaces a child that throws with the fallback, whose button asks for the reset', () => {
+  it('replaces a child that throws with the fallback, and offers the free way out first', () => {
+    // Drawing again costs nothing, and a throw that came from a moment - a
+    // state the screen was in, a modal halfway open - does not come back.
+    // Clearing the save spends the player's only copy of it, so it is offered
+    // beside the free one rather than instead of it, and it is confirmed.
     const onReset = jest.fn();
     let tree!: ReactTestRenderer;
     act(() => {
       tree = TestRenderer.create(boundary(onReset, React.createElement(Thrower)));
     });
     expect(texts(tree)).toContain('Something went wrong');
-    const start = button(tree, 'Start a new game');
-    expect(start).toBeDefined();
+    expect(labels(tree)).toEqual(['Try again', 'Start a new game']);
     expect(onReset).not.toHaveBeenCalled();
-    act(() => (start!.props.onPress as () => void)());
+
+    // The destructive one asks first, and backing out spends nothing.
+    act(() => (button(tree, 'Start a new game')!.props.onPress as () => void)());
+    expect(texts(tree)).toContain('Clear the saved game?');
+    expect(onReset).not.toHaveBeenCalled();
+    act(() => (button(tree, 'Back')!.props.onPress as () => void)());
+    expect(labels(tree)).toEqual(['Try again', 'Start a new game']);
+
+    act(() => (button(tree, 'Start a new game')!.props.onPress as () => void)());
+    act(() => (button(tree, 'Clear it and start over')!.props.onPress as () => void)());
     expect(onReset).toHaveBeenCalledTimes(1);
+    act(() => tree.unmount());
+  });
+
+  it('draws its child again on Try again, without touching what is stored', async () => {
+    // The one recovery that cannot cost anything: no storage call at all, and
+    // a child that renders this time is simply back on screen.
+    await seedEveryKey();
+    const before = [...(await AsyncStorage.getAllKeys())].sort();
+    const onReset = jest.fn();
+    let tree!: ReactTestRenderer;
+    act(() => {
+      tree = TestRenderer.create(boundary(onReset, React.createElement(Sometimes)));
+    });
+    expect(texts(tree)).toContain('Something went wrong');
+    mockScreen.broken = false;
+    act(() => (button(tree, 'Try again')!.props.onPress as () => void)());
+    expect(texts(tree)).toContain('drawn this time');
+    expect(texts(tree)).not.toContain('Something went wrong');
+    expect(onReset).not.toHaveBeenCalled();
+    expect([...(await AsyncStorage.getAllKeys())].sort()).toEqual(before);
     act(() => tree.unmount());
   });
 });
@@ -160,6 +207,7 @@ describe('the app around it', () => {
     // The screen would draw now; only the boundary is in the way.
     mockScreen.broken = false;
     await act(async () => (button(tree, 'Start a new game')!.props.onPress as () => void)());
+    await act(async () => (button(tree, 'Clear it and start over')!.props.onPress as () => void)());
     await settle();
 
     // The game key is gone and every other record is untouched.

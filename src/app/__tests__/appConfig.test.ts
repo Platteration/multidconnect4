@@ -19,6 +19,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import debugInternetPlugin from '../../../plugins/withDebugInternet';
+import { KEYS } from '../persist';
 import { DEFAULT_SETTINGS } from '../settings';
 import { buildTheme } from '../../ui/theme';
 
@@ -425,12 +426,19 @@ describe('what leaves the device', () => {
   it('keeps the saved game in Android backup', () => {
     // @expo/config-plugins defaults allowBackup to true over the template's
     // own false, so the file states it rather than inheriting it. The store
-    // is one game in progress and the settings (the keys in persist.ts, the
-    // shape in savedGame.ts): the player's own record, holding nothing that
-    // must not leave the device. The only thing `false` would do is lose the
-    // game on a move to a new phone.
+    // is the five records in persist.ts - the game in progress, the settings,
+    // the record sheet, the puzzle progress and the entitlements - all of
+    // them the player's own, holding nothing that must not leave the device.
+    // The only thing `false` would do is lose them on a move to a new phone.
+    //
+    // The entitlements record is the one to look at again if the store is
+    // ever wired up (STORE_ENABLED in purchases.ts): with no backup rules of
+    // its own, a restored - or planted - entitlements record is whatever it
+    // says it is. Today every cosmetic is free and it unlocks nothing.
     expect(appConfig.android.allowBackup).toBe(true);
     expect(manifest.application[0].$['android:allowBackup']).toBe('true');
+    // And the sentence above names the records the app actually keeps.
+    expect(Object.keys(KEYS).sort()).toEqual(['entitlements', 'game', 'progress', 'settings', 'stats']);
   });
 });
 

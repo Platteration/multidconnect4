@@ -21,10 +21,14 @@ plugin writes the string resource, its activity listener reads it). The app has 
 network code (deep links in via `Linking`, game codes out via `Share.share`/clipboard),
 so `android.blockedPermissions` removes INTERNET, the storage/media reads and the
 template's `SYSTEM_ALERT_WINDOW` from the shipped manifest, and
-`plugins/withDebugInternet.js` adds INTERNET back to the debug source set alone so a
+`plugins/withDebugInternet.js` (drawdraw's plugin, verbatim but for the one sentence that
+described that app) adds INTERNET back to the debug source set alone so a
 development build can still load its bundle; the test scans every AndroidManifest.xml
 under node_modules so a module that brings a new permission fails it. `allowBackup` is
-true on purpose: the store is one in-progress game plus settings. tsconfig lists `node`
+true on purpose: the store is the five records `KEYS` names (the game in progress, the
+settings, the record sheet, the puzzle progress and the entitlements), all of them the
+player's own and none of them worth hiding from a backup — the entitlements record is the
+one to revisit if `STORE_ENABLED` is ever turned on. tsconfig lists `node`
 in `types` for that test's sake (`@types/node` is a devDependency at the pinned Node
 major). Install expo packages with `npm install <pkg>@<pin from
 node_modules/expo/bundledNativeModules.json>`; `npx expo install` needs Expo's API.
