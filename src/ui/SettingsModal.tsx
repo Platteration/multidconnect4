@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useEntitlements } from '../app/entitlements';
 import { ReduceMotionChoice, ThemeChoice, useSettings } from '../app/settings';
-import { Button, ConfirmModal } from './Modals';
+import { Button } from './Modals';
 import { PIECE_SETS, SKINS, Theme, radius, spacing } from './theme';
 import { useTheme } from '../app/theme';
 
@@ -26,9 +26,43 @@ export function SettingsModal({ visible, onClose, children }: Props) {
   const { owns } = useEntitlements();
   const [locked, setLocked] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const close = () => {
+    setConfirmReset(false);
+    onClose();
+  };
+  // The confirmation is drawn inside this sheet rather than in a second
+  // <Modal> beside it. iOS presents each Modal from the nearest view
+  // controller, which is already presenting this one, so the second
+  // presentation is refused and "Reset to defaults" is a button that does
+  // nothing there. MenuModal's "Start over?" is the same swap.
+  if (confirmReset) {
+    return (
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={() => setConfirmReset(false)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.title}>Reset settings?</Text>
+            <Text style={styles.body}>
+              Every setting on this sheet goes back to its default: feel, theme, motion, board, pieces and the rule
+              variants. Your games, record, puzzle progress and purchases are not touched.
+            </Text>
+            <View style={{ height: spacing.md }} />
+            <Button
+              label="Reset"
+              tone="danger"
+              onPress={() => {
+                setConfirmReset(false);
+                reset();
+              }}
+            />
+            <View style={{ height: spacing.sm }} />
+            <Button label="Keep my settings" onPress={() => setConfirmReset(false)} />
+          </View>
+        </View>
+      </Modal>
+    );
+  }
   return (
-    <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
         <View style={styles.backdrop}>
           <View style={styles.sheet}>
             <Text style={styles.title}>Settings</Text>
@@ -111,23 +145,10 @@ export function SettingsModal({ visible, onClose, children }: Props) {
               </Section>
             </ScrollView>
             <View style={{ height: spacing.md }} />
-            <Button label="Done" tone="primary" onPress={onClose} />
+            <Button label="Done" tone="primary" onPress={close} />
           </View>
         </View>
       </Modal>
-      <ConfirmModal
-        visible={confirmReset}
-        title="Reset settings?"
-        body="Every setting on this sheet goes back to its default: feel, theme, motion, board, pieces and the rule variants. Your games, record, puzzle progress and purchases are not touched."
-        confirmLabel="Reset"
-        cancelLabel="Keep my settings"
-        onConfirm={() => {
-          setConfirmReset(false);
-          reset();
-        }}
-        onCancel={() => setConfirmReset(false)}
-      />
-    </>
   );
 }
 
@@ -206,6 +227,7 @@ const makeStyles = (colors: Theme) =>
   backdrop: { flex: 1, backgroundColor: 'rgba(5,6,20,0.85)', justifyContent: 'center', padding: spacing.lg },
   sheet: { backgroundColor: colors.panel, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },
   title: { color: colors.text, fontSize: 22, fontWeight: '800', marginBottom: spacing.md },
+  body: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   section: { color: colors.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1, marginBottom: spacing.xs },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   label: { color: colors.text, fontSize: 15, fontWeight: '600' },

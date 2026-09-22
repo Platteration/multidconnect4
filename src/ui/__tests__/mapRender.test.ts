@@ -20,12 +20,16 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import React from 'react';
-import { ScrollView } from 'react-native';
+import { Animated, ScrollView } from 'react-native';
 import TestRenderer, { ReactTestInstance, ReactTestRenderer, act } from 'react-test-renderer';
-import { BoardRef, GameState, Timeline, newGame, timelineLabel } from '../../engine';
+import { Action, BoardRef, GameState, Timeline, applyAction, newGame, timelineLabel } from '../../engine';
 import { MAP_LAYOUT, MultiverseMap } from '../MultiverseMap';
 
 const { HEADER, ROW, SLOT } = MAP_LAYOUT;
+
+declare const require: (name: string) => { readFileSync(path: string, encoding: string): string };
+declare const __dirname: string;
+const source = (file: string): string => require('fs').readFileSync(`${__dirname}/../${file}`, 'utf8');
 
 /** A phone-sized map pane. */
 const VIEWPORT = { width: 380, height: 260 };
@@ -49,13 +53,13 @@ function multiverse(timelines: number, boardsEach: number): GameState {
   return { ...start, timelines: rows };
 }
 
-const mapElement = (state: GameState, focus: BoardRef) =>
-  React.createElement(MultiverseMap, { state, focus, targets: [], origin: null, onPressBoard: () => {} });
+const mapElement = (state: GameState, focus: BoardRef, reduceMotion = false) =>
+  React.createElement(MultiverseMap, { state, focus, targets: [], origin: null, onPressBoard: () => {}, reduceMotion });
 
-const render = (state: GameState, focus: BoardRef): ReactTestRenderer => {
+const render = (state: GameState, focus: BoardRef, reduceMotion = false): ReactTestRenderer => {
   let tree!: ReactTestRenderer;
   act(() => {
-    tree = TestRenderer.create(mapElement(state, focus));
+    tree = TestRenderer.create(mapElement(state, focus, reduceMotion));
   });
   return tree;
 };
@@ -159,5 +163,65 @@ describe('what the map mounts', () => {
     layout(tree, { width: 0, height: 260 });
     expect(isDrawn(tree, focus)).toBe(true);
     act(() => tree.unmount());
+  });
+});
+
+/**
+ * Less motion. The setting has one behaviour on this screen and one on the
+ * map - the flight a travelling disc makes across it, and whether the scroll
+ * to the focused board is animated - and neither was tested at all: the prop,
+ * the flight's guard and the `animated` flag could each be deleted with the
+ * whole suite green, and the setting would have gone on saving and restoring
+ * while doing nothing.
+ */
+describe('less motion', () => {
+  const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
+  /** A state whose last action is a time travel: the one thing the map animates. */
+  const travelled = (() => {
+    const played = [drop(0), drop(1), drop(2), drop(3)].reduce((s, a) => applyAction(s, a), newGame());
+    return applyAction(played, { type: 'travel', from: { timeline: 0, row: 0, col: 0 }, to: { timeline: 0, turn: 0 }, col: 6 });
+  })();
+  const focus: BoardRef = { timeline: 1, turn: 1 };
+
+  let timing: jest.SpyInstance;
+  let scrollSpy: jest.SpyInstance;
+  beforeEach(() => {
+    timing = jest.spyOn(Animated, 'timing');
+    // The scroller is a host component with no native side under the test
+    // renderer; what matters is what the map asks it for.
+    scrollSpy = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    timing.mockRestore();
+    scrollSpy.mockRestore();
+  });
+
+  it('flies the travelling disc across the map, and animates the scroll', () => {
+    const tree = render(travelled, focus);
+    layout(tree, VIEWPORT);
+    expect(travelled.lastAction?.type).toBe('travel');
+    expect(timing).toHaveBeenCalled();
+    expect(scrollSpy.mock.calls.flat()).toContainEqual({ x: focusOffset(focus).x, animated: true });
+    expect(scrollSpy.mock.calls.flat()).toContainEqual({ y: focusOffset(focus).y, animated: true });
+    act(() => tree.unmount());
+  });
+
+  it('holds the flight still and jumps the scroll when less motion is asked for', () => {
+    const tree = render(travelled, focus, true);
+    layout(tree, VIEWPORT);
+    // Not one animation started - the flight is the only thing the map moves.
+    expect(timing).not.toHaveBeenCalled();
+    // The board still ends up in view; it just gets there at once.
+    expect(scrollSpy.mock.calls.flat()).toContainEqual({ x: focusOffset(focus).x, animated: false });
+    expect(scrollSpy.mock.calls.flat()).toContainEqual({ y: focusOffset(focus).y, animated: false });
+    expect(isDrawn(tree, focus)).toBe(true);
+    act(() => tree.unmount());
+  });
+
+  it('is the setting the screen resolves, handed to the map', () => {
+    // Declared locally because this project's tests read files this way.
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/const reduceMotion = useReduceMotion\(settings\.reduceMotion\);/);
+    expect(src).toMatch(/<MultiverseMap [^>]*reduceMotion=\{reduceMotion\}/);
   });
 });
