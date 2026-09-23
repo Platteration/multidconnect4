@@ -41,6 +41,7 @@ export interface Timeline {
   id: number;
   /** Turn index of boards[0]. The root timeline starts at 0. */
   startTurn: number;
+  /** Never empty: a timeline is made with the board it starts from, and boards are only added. */
   boards: Board[];
   /** Who created this timeline by travelling. null for the root timeline. */
   createdBy: Player | null;
@@ -133,7 +134,7 @@ export function latestTurn(tl: Timeline): number {
 }
 
 export function latestBoard(tl: Timeline): Board {
-  return tl.boards[tl.boards.length - 1];
+  return tl.boards[tl.boards.length - 1]!;
 }
 
 export function latestRef(tl: Timeline): BoardRef {
@@ -270,21 +271,26 @@ export function applyAction(state: GameState, action: Action): GameState {
   }
   const timelines = state.timelines.map((tl) => ({ ...tl, boards: tl.boards.slice() }));
   const created: BoardRef[] = [];
+  // Every caller below has just found this timeline in `state`, whose copy is
+  // at the same index: a timeline's id is its place in the list.
+  const extend = (id: number, board: Board) => {
+    const tl = timelines[id]!;
+    tl.boards.push(board);
+    created.push(latestRef(tl));
+  };
 
   if (action.type === 'drop') {
     const tl = assertPending(state, action.timeline);
     const dropped = dropDisc(latestBoard(tl), action.col, me);
     if (!dropped) throw new IllegalAction('that column is full');
-    timelines[tl.id].boards.push(dropped.board);
-    created.push(latestRef(timelines[tl.id]));
+    extend(tl.id, dropped.board);
   } else if (action.type === 'rotate' || action.type === 'flip') {
     const tl = assertPending(state, action.timeline);
     const board = latestBoard(tl);
     if (action.type === 'flip' && !state.rules.flip) throw new IllegalAction('flipping is not enabled in this game');
     if (board.spun) throw new IllegalAction('that board was just turned; play a disc first');
     if (board.cells.every((c) => c === null)) throw new IllegalAction('turning an empty board would change nothing');
-    timelines[tl.id].boards.push(action.type === 'flip' ? flip(board) : rotate(board, action.spin));
-    created.push(latestRef(timelines[tl.id]));
+    extend(tl.id, action.type === 'flip' ? flip(board) : rotate(board, action.spin));
   } else if (action.type === 'pop') {
     if (!state.rules.popOut) throw new IllegalAction('pop out is not enabled in this game');
     const tl = assertPending(state, action.timeline);
@@ -292,8 +298,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     if (!inside(board, 0, action.col) || cellAt(board, 0, action.col) !== me) {
       throw new IllegalAction('you can only pop out your own disc from the bottom row');
     }
-    timelines[tl.id].boards.push(removeDisc(board, 0, action.col));
-    created.push(latestRef(timelines[tl.id]));
+    extend(tl.id, removeDisc(board, 0, action.col));
   } else {
     const from = assertPending(state, action.from.timeline);
     const originBoard = latestBoard(from);
@@ -310,8 +315,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     const arrived = dropDisc(target, action.col, me);
     if (!arrived) throw new IllegalAction('that column is full on the past board');
 
-    timelines[from.id].boards.push(removeDisc(originBoard, action.from.row, action.from.col));
-    created.push(latestRef(timelines[from.id]));
+    extend(from.id, removeDisc(originBoard, action.from.row, action.from.col));
 
     const branch: Timeline = {
       id: timelines.length,

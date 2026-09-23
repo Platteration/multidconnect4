@@ -15,7 +15,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 import React from 'react';
 
-import { Board, BoardRef, newGame } from '../../engine';
+import { Board, BoardRef, getTimeline, latestBoard, newGame } from '../../engine';
 import { MiniBoard } from '../MiniBoard';
 
 // The renderer ships with jest-expo but carries no type definitions, and this
@@ -35,7 +35,7 @@ declare const require: (name: string) => unknown;
 const TestRenderer = require('react-test-renderer') as Renderer;
 
 function anyBoard(): Board {
-  return newGame().timelines[0].boards[0];
+  return latestBoard(getTimeline(newGame(), 0));
 }
 
 /** Renders a real thumbnail and returns the press handler it gave its button. */
@@ -48,7 +48,7 @@ function pressable(props: { timeline?: number; turn?: number; onPress?: (ref: Bo
     (node) => node.props.accessibilityRole === 'button' && node.props.onPress !== undefined,
   );
   return {
-    press: buttons.length === 1 ? (buttons[0].props.onPress as () => void) : undefined,
+    press: buttons.length === 1 ? (buttons[0]!.props.onPress as () => void) : undefined,
     buttons: buttons.length,
     unmount: () => TestRenderer.act(() => tree!.unmount()),
   };

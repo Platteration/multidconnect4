@@ -83,7 +83,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const replaying = replayIndex !== null && replayIndex < game.history.length;
   const liveState = game.state;
-  const state = replaying ? game.history[replayIndex] : liveState;
+  const state = replaying ? game.history[replayIndex]! : liveState;
   const focus = replaying ? (state.lastCreated[0] ?? { timeline: 0, turn: 0 }) : game.focus;
   const humanTurn = game.humanTurn && !replaying;
   const [shareOpen, setShareOpen] = useState(false);
@@ -147,7 +147,8 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
     return () => sub.remove();
   }, []);
 
-  // A tiny multiverse for the welcome pages: three moves, then a travel.
+  // A tiny multiverse for the welcome pages: four drops, then a travel back to
+  // turn 2. Timeline 0 ends at turn 5, and the travel opens timeline 1 with one board.
   const welcomeDemo = useMemo(() => {
     const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
     const steps: Action[] = [drop(3), drop(3), drop(2), drop(4), { type: 'travel', from: { timeline: 0, row: 0, col: 2 }, to: { timeline: 0, turn: 2 }, col: 5 }];
@@ -160,7 +161,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
         body: 'Each turn makes a new board. The map at the bottom shows every board that ever existed, left to right through time.',
         art: (
           <View style={{ flexDirection: 'row', gap: 6 }}>
-            {welcomeDemo.timelines[0].boards.slice(0, 4).map((b, i) => (
+            {getTimeline(welcomeDemo, 0).boards.slice(0, 4).map((b, i) => (
               <MiniBoard key={i} board={b} />
             ))}
           </View>
@@ -171,9 +172,9 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
         body: 'Tap one of your discs, then a glowing past board. History branches: a new timeline starts there with your extra disc, and your opponent must answer on it too.',
         art: (
           <View style={{ alignItems: 'center', gap: 6 }}>
-            <MiniBoard board={welcomeDemo.timelines[0].boards[2]} ring={colors.travel} badge="GO" />
+            <MiniBoard board={getTimeline(welcomeDemo, 0).boards[2]!} ring={colors.travel} badge="GO" />
             <Text style={{ color: colors.travel, fontWeight: '800' }}>↓</Text>
-            <MiniBoard board={welcomeDemo.timelines[1].boards[0]} ring={colors.players[1]} badge="play" />
+            <MiniBoard board={getTimeline(welcomeDemo, 1).boards[0]!} ring={colors.players[1]} badge="play" />
           </View>
         ),
       },
@@ -284,6 +285,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   const bot = game.setup.bot;
   const puzzle = game.setup.mode === 'puzzle' && game.setup.puzzleId ? puzzleById(game.setup.puzzleId) : undefined;
   const puzzleIndex = puzzle ? PUZZLES.findIndex((p) => p.id === puzzle.id) : -1;
+  const nextPuzzle = puzzleIndex >= 0 ? PUZZLES[puzzleIndex + 1] : undefined;
   const survive = puzzle?.goal === 'survive';
   const puzzleSolved =
     !!puzzle &&
@@ -309,8 +311,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
       const action = chooseAction(liveState, bot.level);
       if (!action) return;
       if (action.type === 'rotate') {
-        const tl = liveState.timelines[action.timeline];
-        game.focusBoard({ timeline: action.timeline, turn: tl.startTurn + tl.boards.length - 1 });
+        game.focusBoard(latestRef(getTimeline(liveState, action.timeline)));
         animateSpin(action.spin, () => game.play(action));
       } else if (action.type === 'flip') {
         animateSpin('flip', () => game.play(action));
@@ -322,7 +323,8 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveState, bot, game.humanTurn, replaying, spinning]);
 
-  const board = getBoard(state, focus) ?? state.timelines[0].boards[0];
+  // Every game has its root timeline, and a timeline is never without a board.
+  const board = getBoard(state, focus) ?? getTimeline(state, 0).boards[0]!;
   const timeline = getTimeline(state, focus.timeline);
   const focusIsPending = isPending(state, focus);
   const pending = pendingTimelines(state);
@@ -616,10 +618,10 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
         solved={puzzleSolved}
         survived={survive}
         title={puzzle?.title ?? ''}
-        hasNext={puzzleIndex >= 0 && puzzleIndex < PUZZLES.length - 1}
+        hasNext={!!nextPuzzle}
         onNext={() => {
           setResultDismissed(true);
-          game.startPuzzle(PUZZLES[puzzleIndex + 1]);
+          if (nextPuzzle) game.startPuzzle(nextPuzzle);
         }}
         onRetry={() => {
           setResultDismissed(true);

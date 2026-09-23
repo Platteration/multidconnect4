@@ -39,7 +39,7 @@ export const MiniBoard = React.memo(function MiniBoard({ board, ring, dim, badge
   for (let r = board.rows - 1; r >= 0; r--) {
     const cells: React.ReactNode[] = [];
     for (let c = 0; c < board.cols; c++) {
-      const v = board.cells[index(board, r, c)];
+      const v = board.cells[index(board, r, c)]!;
       cells.push(
         <View
           key={c}

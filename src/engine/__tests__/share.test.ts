@@ -12,7 +12,7 @@ import {
 } from '../../app/share';
 import { enumerateActions } from '../bot';
 import { GameSetup } from '../../app/setup';
-import { Action, GameState, IllegalAction, applyAction, newGame } from '../index';
+import { Action, GameState, IllegalAction, applyAction, getTimeline, newGame } from '../index';
 
 /** Wrap a payload exactly as a sender would, so the whole decode path runs. */
 const codeFor = (payload: unknown): string => `5DC4.${encode(JSON.stringify(payload))}`;
@@ -31,13 +31,13 @@ describe('game codes', () => {
       { type: 'travel', from: { timeline: 0, row: 0, col: 5 }, to: { timeline: 0, turn: 6 }, col: 4 },
       { type: 'rotate', timeline: 1, spin: 'cw' },
     ];
-    const history = actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame({ popOut: true })]);
+    const history = actions.reduce((h, a) => [...h, applyAction(h[h.length - 1]!, a)], [newGame({ popOut: true })]);
     const code = encodeGame(history, { mode: 'local' });
     expect(code.startsWith('5DC4.')).toBe(true);
     const loaded = decodeGame(code);
     expect(loaded.history).toHaveLength(history.length);
     expect(loaded.history[loaded.history.length - 1]).toEqual(history[history.length - 1]);
-    expect(loaded.history[0].rules.popOut).toBe(true);
+    expect(loaded.history[0]?.rules.popOut).toBe(true);
   });
 
   it('rejects junk and illegal codes', () => {
@@ -76,7 +76,7 @@ describe('hostile game codes', () => {
     // The engine, not just the message, must refuse it - and as an illegal
     // move, not as a TypeError a bare toThrow would have accepted.
     const legal = payload.a.slice(0, 4).reduce((s, a) => applyAction(s, a), newGame());
-    expect(() => applyAction(legal, payload.a[4])).toThrow(IllegalAction);
+    expect(() => applyAction(legal, payload.a[4]!)).toThrow(IllegalAction);
   });
 
   it('rejects a pop from outside the board', () => {
@@ -107,7 +107,7 @@ describe('hostile game codes', () => {
 
   it('reads rules as rules, whatever the code says they are', () => {
     const code = codeFor({ v: 1, r: 'popOut', m: 'local', a: [drop(0)] });
-    expect(decodeGame(code).history[0].rules).toEqual({ popOut: false, flip: false, strictPresent: false });
+    expect(decodeGame(code).history[0]?.rules).toEqual({ popOut: false, flip: false, strictPresent: false });
   });
 
   it('refuses a code with more actions than a game could have', () => {
@@ -205,10 +205,11 @@ describe('hostile game codes', () => {
     const built = actions.reduce((s, a) => applyAction(s, a), newGame());
     expect(boardCount(built)).toBeLessThanOrEqual(1 + actions.length + (built.timelines.length - 1));
     // The check itself still refuses a state past it, however it got there.
-    const board = newGame().timelines[0].boards[0];
+    const root = getTimeline(newGame(), 0);
+    const board = root.boards[0]!;
     const huge: GameState = {
       ...newGame(),
-      timelines: [{ ...newGame().timelines[0], boards: Array.from({ length: MAX_BOARDS + 1 }, () => board) }],
+      timelines: [{ ...root, boards: Array.from({ length: MAX_BOARDS + 1 }, () => board) }],
     };
     expect(stateLimit(huge)).toEqual({ what: 'boards', count: MAX_BOARDS + 1, limit: MAX_BOARDS });
     // And passes a game of the size people play, boards and timelines alike.
@@ -252,7 +253,7 @@ describe('a code this app makes', () => {
   const LOCAL: GameSetup = { mode: 'local' };
   const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
   const play = (actions: Action[], rules?: Parameters<typeof newGame>[0]): GameState[] =>
-    actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame(rules)]);
+    actions.reduce((h, a) => [...h, applyAction(h[h.length - 1]!, a)], [newGame(rules)]);
 
   /** The game the save path is written for: two stubborn players, one timeline. */
   function popOutGame(moves: number): GameState[] {
@@ -266,7 +267,7 @@ describe('a code this app makes', () => {
   function branchingGame(actions: number): GameState[] {
     const history: GameState[] = [newGame()];
     while (history.length <= actions) {
-      const state = history[history.length - 1];
+      const state = history[history.length - 1]!;
       const legal = enumerateActions(state, 3);
       const action = legal.find((a) => a.type === 'travel') ?? legal[0];
       if (!action) break;
@@ -282,9 +283,9 @@ describe('a code this app makes', () => {
     // it must also be able to send it: a limit that refuses it here ends the
     // game for both players, on the far phone, with no way to tell why.
     const history = popOutGame(500);
-    const last = history[history.length - 1];
+    const last = history[history.length - 1]!;
     expect(last.timelines).toHaveLength(1);
-    expect(last.timelines[0].boards.length).toBe(501);
+    expect(last.timelines[0]?.boards.length).toBe(501);
 
     const { code, problem } = shareCodeFor(history, LOCAL);
     expect(problem).toBeNull();
@@ -296,7 +297,7 @@ describe('a code this app makes', () => {
 
   it('refuses to make a code the app itself would refuse to read', () => {
     const history = branchingGame(200);
-    const last = history[history.length - 1];
+    const last = history[history.length - 1]!;
     expect(last.timelines.length).toBeGreaterThan(MAX_TIMELINES);
 
     const { code, problem } = shareCodeFor(history, LOCAL);

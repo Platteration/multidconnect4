@@ -117,8 +117,8 @@ describe('cleanSettings', () => {
       patterns: !D.patterns,
       theme: 'light',
       reduceMotion: 'on',
-      skin: SKINS[SKINS.length - 1].id,
-      pieces: PIECE_SETS[PIECE_SETS.length - 1].id,
+      skin: SKINS[SKINS.length - 1]!.id,
+      pieces: PIECE_SETS[PIECE_SETS.length - 1]!.id,
       welcomed: !D.welcomed,
     };
     // Every field differs from its default, so a fallback that reached past

@@ -375,7 +375,8 @@ describe('what leaves the device', () => {
     for (const file of files) {
       const xml = fs.readFileSync(file, 'utf8');
       for (const m of xml.matchAll(/<uses-permission[^>]*android:name="([^"]+)"/g)) {
-        declaredBy.set(m[1], [...(declaredBy.get(m[1]) || []), path.relative(root, file)]);
+        const name = m[1]!; // the group is not optional, so a match always has it
+        declaredBy.set(name, [...(declaredBy.get(name) || []), path.relative(root, file)]);
       }
     }
 

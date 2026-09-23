@@ -67,7 +67,7 @@ describe('board', () => {
       'Y......',
       'Y......',
     ]);
-    expect(findLines(vertical)[0].player).toBe(1);
+    expect(findLines(vertical)[0]?.player).toBe(1);
 
     const diag = boardFromRows([
       '.......',
@@ -87,7 +87,7 @@ describe('board', () => {
       '...RRY.',
       '...RRRY',
     ]);
-    expect(findLines(antiDiag)[0].player).toBe(1);
+    expect(findLines(antiDiag)[0]?.player).toBe(1);
   });
 
   it('prefers the given player when both have lines', () => {

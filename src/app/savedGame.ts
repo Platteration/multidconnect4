@@ -62,9 +62,9 @@ export interface SavedGame {
   actions: Action[];
 }
 
-/** The value to store for a game in progress. */
+/** The value to store for a game in progress. A history always holds the state the game started from. */
 export function toSavedGame(history: GameState[], setup: GameSetup): SavedGame {
-  return { version: SAVE_VERSION, rules: history[0].rules, setup, actions: actionsOf(history) };
+  return { version: SAVE_VERSION, rules: history[0]!.rules, setup, actions: actionsOf(history) };
 }
 
 /** What the autosave should do with the game as it stands. */
@@ -79,7 +79,7 @@ export type SaveDecision = { kind: 'write'; payload: SavedGame } | { kind: 'clea
  */
 export function saveDecision(history: GameState[], setup: GameSetup): SaveDecision {
   if (history.length <= 1) return { kind: 'clear' };
-  if (history[history.length - 1].status !== 'playing') return { kind: 'clear' };
+  if (history[history.length - 1]!.status !== 'playing') return { kind: 'clear' };
   return { kind: 'write', payload: toSavedGame(history, setup) };
 }
 
@@ -125,14 +125,16 @@ function replay(base: GameState | null, actions: unknown, setup: GameSetup): Res
   if (!base || !Array.isArray(actions)) return null;
   const kept = Math.min(actions.length, MAX_SAVED_ACTIONS);
   const history: GameState[] = [base];
+  let state = base;
   for (let i = 0; i < kept; i++) {
     const action = actions[i];
     if (!isAction(action)) return null;
     try {
-      history.push(applyAction(history[history.length - 1], action));
+      state = applyAction(state, action);
     } catch {
       return null;
     }
+    history.push(state);
   }
   return { history, setup, truncated: kept < actions.length };
 }

@@ -15,6 +15,8 @@ import {
   applyAction,
   canEndTurn,
   canRotate,
+  getBoard,
+  getTimeline,
   latestBoard,
   mandatoryTimelines,
   pendingTimelines,
@@ -52,7 +54,8 @@ export function enumerateActions(state: GameState, level: BotLevel): Action[] {
         const col = i % board.cols;
         if (state.rules.popOut && row === 0) out.push({ type: 'pop', timeline: tl.id, col });
         for (const to of targets) {
-          const target = state.timelines[to.timeline].boards[to.turn - state.timelines[to.timeline].startTurn];
+          // travelTargets names only boards it found in this state.
+          const target = getBoard(state, to)!;
           for (const c of legalColumns(target)) {
             out.push({ type: 'travel', from: { timeline: tl.id, row, col }, to, col: c });
           }
@@ -208,8 +211,7 @@ function opponentCanFork(state: GameState): boolean {
 /** Whether the board still has a line for `player` after this drop would be a block. */
 function isBlock(state: GameState, action: Action, me: Player): boolean {
   if (action.type !== 'drop') return false;
-  const tl = state.timelines[action.timeline];
-  const board = latestBoard(tl);
+  const board = latestBoard(getTimeline(state, action.timeline));
   const asOpponent = { ...board, cells: board.cells.slice() };
   const row = legalColumns(board).includes(action.col) ? firstEmptyRow(board, action.col) : -1;
   if (row < 0) return false;
@@ -231,16 +233,18 @@ export function chooseAction(state: GameState, level: BotLevel, rng: Rng = Math.
   // Under the strict-present rule, bots play what they must and leave the rest for later.
   if (canEndTurn(state) && mandatoryTimelines(state).length === 0) return { type: 'endTurn' };
   let actions = enumerateActions(state, level);
-  if (actions.length === 0) return null;
   if (actions.length > MAX_CANDIDATES) {
     const plain = actions.filter((a) => a.type !== 'travel');
     const travels = actions.filter((a) => a.type === 'travel');
     for (let i = travels.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
-      [travels[i], travels[j]] = [travels[j], travels[i]];
+      [travels[i], travels[j]] = [travels[j]!, travels[i]!];
     }
     actions = [...plain, ...travels.slice(0, Math.max(0, MAX_CANDIDATES - plain.length))];
   }
+  // Sampling keeps at least one candidate, so this is empty only when nothing was legal.
+  const first = actions[0];
+  if (!first) return null;
 
   // Immediate wins first, at every level.
   for (const a of actions) {
@@ -251,9 +255,9 @@ export function chooseAction(state: GameState, level: BotLevel, rng: Rng = Math.
   if (level === 1) {
     // Block a threat most of the time, otherwise play something random.
     const blocks = actions.filter((a) => isBlock(state, a, me));
-    if (blocks.length && rng() < 0.75) return blocks[Math.floor(rng() * blocks.length)];
+    if (blocks.length && rng() < 0.75) return blocks[Math.floor(rng() * blocks.length)]!;
     const drops = actions.filter((a) => a.type === 'drop');
-    return drops[Math.floor(rng() * drops.length)] ?? actions[0];
+    return drops[Math.floor(rng() * drops.length)] ?? first;
   }
 
   let best: Action[] = [];
@@ -277,7 +281,7 @@ export function chooseAction(state: GameState, level: BotLevel, rng: Rng = Math.
       best.push(a);
     }
   }
-  return best[Math.floor(rng() * best.length)] ?? actions[0];
+  return best[Math.floor(rng() * best.length)] ?? first;
 }
 
 /**

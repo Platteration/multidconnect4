@@ -76,7 +76,8 @@ export interface Skin {
   premium: boolean;
 }
 
-export const SKINS: readonly Skin[] = [
+/** Never empty: the first skin is the one a missing or unknown id falls back to. */
+export const SKINS: readonly [Skin, ...Skin[]] = [
   { id: 'classic', name: 'Classic blue', board: '#2a55c8', boardDark: '#1d3d95', hole: '#0d0f1f', premium: false },
   { id: 'wood', name: 'Walnut', board: '#8a5a3c', boardDark: '#5a3a26', hole: '#1c1410', premium: false },
   { id: 'neon', name: 'Neon grid', board: '#12142a', boardDark: '#6d2bff', hole: '#05060f', premium: true },
@@ -95,7 +96,8 @@ export interface PieceSet {
   premium: boolean;
 }
 
-export const PIECE_SETS: readonly PieceSet[] = [
+/** Never empty: the first set is the one a missing or unknown id falls back to. */
+export const PIECE_SETS: readonly [PieceSet, ...PieceSet[]] = [
   {
     id: 'classic',
     names: ['Red', 'Yellow'],

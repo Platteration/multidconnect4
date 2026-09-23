@@ -20,7 +20,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 import React from 'react';
 import TestRenderer, { ReactTestInstance, ReactTestRenderer, act } from 'react-test-renderer';
-import { Action, applyAction, newGame } from '../../engine';
+import { Action, applyAction, getTimeline, latestBoard, newGame } from '../../engine';
 import { DiscBoard } from '../DiscBoard';
 
 type Props = React.ComponentProps<typeof DiscBoard>;
@@ -28,11 +28,10 @@ type Props = React.ComponentProps<typeof DiscBoard>;
 const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
 
 /** The starting board, and one with a red disc under a yellow one in column 4. */
-const EMPTY = newGame().timelines[0].boards[0];
+const EMPTY = latestBoard(getTimeline(newGame(), 0));
 const PLAYED = (() => {
   const state = [drop(3), drop(3)].reduce((s, a) => applyAction(s, a), newGame());
-  const boards = state.timelines[0].boards;
-  return boards[boards.length - 1];
+  return latestBoard(getTimeline(state, 0));
 })();
 
 /** Renders a real board and finds its cells. */
@@ -77,9 +76,9 @@ describe('the board', () => {
     // are stored in. Drawn the other way up, every press still reports the
     // cell its own label names and the discs pile up towards the ceiling.
     const view = render({});
-    expect(labelOf(view.cells[0])).toBe(`row ${EMPTY.rows} column 1 empty`);
-    expect(labelOf(view.cells[EMPTY.cols - 1])).toBe(`row ${EMPTY.rows} column ${EMPTY.cols} empty`);
-    expect(labelOf(view.cells[view.cells.length - 1])).toBe(`row 1 column ${EMPTY.cols} empty`);
+    expect(labelOf(view.cells[0]!)).toBe(`row ${EMPTY.rows} column 1 empty`);
+    expect(labelOf(view.cells[EMPTY.cols - 1]!)).toBe(`row ${EMPTY.rows} column ${EMPTY.cols} empty`);
+    expect(labelOf(view.cells[view.cells.length - 1]!)).toBe(`row 1 column ${EMPTY.cols} empty`);
     view.unmount();
   });
 

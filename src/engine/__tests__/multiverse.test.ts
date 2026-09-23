@@ -12,6 +12,7 @@ import {
   optionalTimelines,
   presentTurn,
   getBoard,
+  getTimeline,
   latestTurn,
   newGame,
   pendingTimelines,
@@ -37,7 +38,7 @@ describe('multiverse basics', () => {
   it('passes the turn after a drop', () => {
     const g = play(newGame(), drop(0, 3));
     expect(g.toMove).toBe(1);
-    expect(latestTurn(g.timelines[0])).toBe(1);
+    expect(latestTurn(getTimeline(g, 0))).toBe(1);
     expect(cellAt(getBoard(g, { timeline: 0, turn: 1 })!, 0, 3)).toBe(0);
     expect(g.lastCreated).toEqual([{ timeline: 0, turn: 1 }]);
   });
@@ -77,7 +78,7 @@ describe('time travel', () => {
     expect(cellAt(origin, 0, 0)).toBeNull();
     expect(cellAt(origin, 0, 2)).toBe(0);
     // Branch starts at turn 3 with the disc added to the turn-2 board.
-    const branch = g.timelines[1];
+    const branch = getTimeline(g, 1);
     expect(branch.startTurn).toBe(3);
     expect(branch.createdBy).toBe(0);
     expect(branch.branchedFrom).toEqual({ timeline: 0, turn: 2 });
@@ -610,7 +611,7 @@ describe('timeline ids', () => {
               // Checked on every state, not only at the end: an id that is
               // wrong for one move draws one frame in the wrong place.
               expect(dense(state)).toBe(true);
-              expect(state.timelines[state.timelines.length - 1].id).toBe(state.timelines.length - 1);
+              expect(state.timelines[state.timelines.length - 1]?.id).toBe(state.timelines.length - 1);
             }
           }
         }

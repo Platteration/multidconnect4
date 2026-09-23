@@ -118,7 +118,7 @@ const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
  * launch, which would leave the reset with nothing to prove.
  */
 async function seedEveryKey(): Promise<void> {
-  const history = [drop(0), drop(1)].reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame()]);
+  const history = [drop(0), drop(1)].reduce((h, a) => [...h, applyAction(h[h.length - 1]!, a)], [newGame()]);
   for (const key of Object.values(KEYS)) await AsyncStorage.setItem(key, JSON.stringify({ seeded: key }));
   await AsyncStorage.setItem(KEYS.game, JSON.stringify(toSavedGame(history, { mode: 'local' })));
 }

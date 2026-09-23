@@ -33,7 +33,7 @@ jest.mock('../MiniBoard', () => {
 
 import React from 'react';
 
-import { Action, BoardRef, GameState, applyAction, newGame } from '../../engine';
+import { Action, BoardRef, GameState, applyAction, getTimeline, latestBoard, newGame } from '../../engine';
 import { MINI_HEIGHT, MINI_WIDTH } from '../MiniBoard';
 import { MAP_LAYOUT, MultiverseMap } from '../MultiverseMap';
 
@@ -98,10 +98,10 @@ function render(state: GameState, onPressBoard: (ref: BoardRef) => void) {
     // horizontal. Both have an onScroll, and the host view repeats it.
     const vertical = tree!.root.findAll(
       (node) => typeof node.props.onScroll === 'function' && node.props.nestedScrollEnabled === true,
-    )[0];
+    )[0]!;
     const horizontal = tree!.root.findAll(
       (node) => typeof node.props.onScroll === 'function' && node.props.horizontal === true,
-    )[0];
+    )[0]!;
     const across = horizontal.props.onScroll as (e: unknown) => void;
     const down = vertical.props.onScroll as (e: unknown) => void;
     mockThumbnailProps = [];
@@ -120,7 +120,7 @@ function render(state: GameState, onPressBoard: (ref: BoardRef) => void) {
     scrollTo,
     /** Tell the map how big it is, which on a device onLayout does. */
     layout: (width: number, height: number) => {
-      const outer = tree!.root.findAll((node) => typeof node.props.onLayout === 'function')[0];
+      const outer = tree!.root.findAll((node) => typeof node.props.onLayout === 'function')[0]!;
       mockThumbnailProps = [];
       TestRenderer.act(() => {
         (outer.props.onLayout as (e: unknown) => void)({ nativeEvent: { layout: { width, height } } });
@@ -147,7 +147,7 @@ function render(state: GameState, onPressBoard: (ref: BoardRef) => void) {
  */
 function wideMultiverse(timelines: number): GameState {
   const base = newGame();
-  const board = base.timelines[0].boards[0];
+  const board = latestBoard(getTimeline(base, 0));
   return {
     ...base,
     timelines: Array.from({ length: timelines }, (_, id) => ({
@@ -164,8 +164,8 @@ function wideMultiverse(timelines: number): GameState {
 /** One timeline that has run for a very long time: a wide map, not a tall one. */
 function longTimeline(turns: number): GameState {
   const base = newGame();
-  const board = base.timelines[0].boards[0];
-  return { ...base, timelines: [{ ...base.timelines[0], boards: Array.from({ length: turns }, () => board) }] };
+  const board = latestBoard(getTimeline(base, 0));
+  return { ...base, timelines: [{ ...getTimeline(base, 0), boards: Array.from({ length: turns }, () => board) }] };
 }
 
 /** Which timelines have a thumbnail mounted right now. */
@@ -180,7 +180,7 @@ function drawnTimelines(): number[] {
  */
 function staggeredMultiverse(timelines: number, boardsPer: number): GameState {
   const base = newGame();
-  const board = base.timelines[0].boards[0];
+  const board = latestBoard(getTimeline(base, 0));
   return {
     ...base,
     timelines: Array.from({ length: timelines }, (_, id) => ({

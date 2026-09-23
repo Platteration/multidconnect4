@@ -137,9 +137,10 @@ export function actionsOf(history: GameState[]): Action[] {
 /**
  * A game as a code. This only writes one: whether the code is one this app
  * would read back is shareCodeFor's question, and the screen asks it there.
+ * A history always holds the state the game started from.
  */
 export function encodeGame(history: GameState[], setup: GameSetup): string {
-  const payload: Payload = { v: 1, r: history[0].rules, m: setup.mode === 'puzzle' ? 'local' : setup.mode, a: actionsOf(history) };
+  const payload: Payload = { v: 1, r: history[0]!.rules, m: setup.mode === 'puzzle' ? 'local' : setup.mode, a: actionsOf(history) };
   return PREFIX + encode(JSON.stringify(payload));
 }
 
@@ -160,7 +161,8 @@ export interface ShareCode {
  * offered at all.
  */
 export function shareCodeFor(history: GameState[], setup: GameSetup): ShareCode {
-  const limit = stateLimit(history[history.length - 1]);
+  // A history always holds the state the game started from.
+  const limit = stateLimit(history[history.length - 1]!);
   if (limit) {
     return {
       code: null,
@@ -192,12 +194,13 @@ export function decodeGame(code: string): { history: GameState[]; setup: GameSet
     throw new Error('That code is from a version this app cannot read.');
   }
   if (payload.a.length > MAX_ACTIONS) throw new Error('That code is too long to be a real game.');
-  const history: GameState[] = [newGame(cleanRules(payload.r))];
+  let state = newGame(cleanRules(payload.r));
+  const history: GameState[] = [state];
   for (const action of payload.a) {
     if (!isAction(action)) throw new Error('That code contains a move that is not legal.');
     let next: GameState;
     try {
-      next = applyAction(history[history.length - 1], action);
+      next = applyAction(state, action);
     } catch {
       throw new Error('That code contains a move that is not legal.');
     }
@@ -207,6 +210,7 @@ export function decodeGame(code: string): { history: GameState[]; setup: GameSet
     if (limit) {
       throw new Error(`That game has ${limit.count} ${limit.what}, more than the ${limit.limit} this app will load from a code.`);
     }
+    state = next;
     history.push(next);
   }
   return { history, setup: payload.m === 'bot' ? { mode: 'local' } : DEFAULT_SETUP };

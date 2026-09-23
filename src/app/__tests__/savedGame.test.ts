@@ -14,7 +14,7 @@ function sampleHistory(): GameState[] {
     { type: 'travel', from: { timeline: 0, row: 0, col: 2 }, to: { timeline: 0, turn: 2 }, col: 4 },
     drop(0, 3), drop(1, 3), drop(0, 4), drop(1, 4),
   ];
-  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame()]);
+  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1]!, a)], [newGame()]);
 }
 
 /**
@@ -29,14 +29,14 @@ function longShufflingGame(moves: number): GameState[] {
   }
   return actions
     .slice(0, moves)
-    .reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame({ popOut: true })]);
+    .reduce((h, a) => [...h, applyAction(h[h.length - 1]!, a)], [newGame({ popOut: true })]);
 }
 
 /** The other shape a long game takes: travel whenever travelling is legal. */
 function longBranchingGame(): GameState[] {
   const history: GameState[] = [newGame()];
   while (history.length <= 200) {
-    const state = history[history.length - 1];
+    const state = history[history.length - 1]!;
     const legal = enumerateActions(state, 3);
     const action = legal.find((a) => a.type === 'travel') ?? legal[0];
     if (!action) break;
@@ -52,7 +52,7 @@ const LOCAL: GameSetup = { mode: 'local' };
 /** Four in the first column against a pair in the second: red wins on move 7. */
 function wonGame(): GameState[] {
   const actions = [drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1), drop(0, 0)];
-  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1], a)], [newGame()]);
+  return actions.reduce((h, a) => [...h, applyAction(h[h.length - 1]!, a)], [newGame()]);
 }
 
 describe('what the autosave writes', () => {
@@ -72,7 +72,7 @@ describe('what the autosave writes', () => {
     // one more won, every time the app is opened. The game is over: there is
     // nothing left in it to come back to.
     const won = wonGame();
-    expect(won[won.length - 1].status).toBe('won');
+    expect(won[won.length - 1]?.status).toBe('won');
     // A game still going is written; the moment it ends the record is cleared.
     expect(saveDecision(won.slice(0, -1), LOCAL).kind).toBe('write');
     expect(saveDecision(won, LOCAL)).toEqual({ kind: 'clear' });
@@ -102,7 +102,7 @@ describe('the game in storage', () => {
   });
 
   it('rebuilds a puzzle from the puzzle itself', () => {
-    const puzzle = PUZZLES[0];
+    const puzzle = PUZZLES[0]!;
     const setup: GameSetup = {
       mode: 'puzzle',
       puzzleId: puzzle.id,
@@ -110,7 +110,7 @@ describe('the game in storage', () => {
       within: puzzle.within,
       bot: { level: 3, player: puzzle.player === 0 ? 1 : 0 },
     };
-    const history = [puzzle.state, applyAction(puzzle.state, puzzle.solution[0])];
+    const history = [puzzle.state, applyAction(puzzle.state, puzzle.solution[0]!)];
     const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, setup))));
     expect(restored!.history).toEqual(history);
     expect(restored!.setup).toEqual(setup);
@@ -122,7 +122,7 @@ describe('the game in storage', () => {
     // way. This one is past the size an imported code is refused for, and it
     // has to still be there in the morning, whole.
     const history = longBranchingGame();
-    const last = history[history.length - 1];
+    const last = history[history.length - 1]!;
     const boards = last.timelines.reduce((n, tl) => n + tl.boards.length, 0);
     // Big enough to be the case under test, counted from the game itself.
     expect(boards > MAX_BOARDS || last.timelines.length > MAX_TIMELINES).toBe(true);
@@ -160,8 +160,8 @@ describe('the game in storage', () => {
     // The 500-move game the save path was written for. Nothing about it is
     // exotic, and both paths have to hold it: kept here, sendable there.
     const history = longShufflingGame(500);
-    const last = history[history.length - 1];
-    expect(last.timelines[0].boards).toHaveLength(501);
+    const last = history[history.length - 1]!;
+    expect(last.timelines[0]?.boards).toHaveLength(501);
     const restored = restoreSavedGame(JSON.parse(JSON.stringify(toSavedGame(history, LOCAL))));
     expect(restored!.truncated).toBe(false);
     expect(restored!.history).toHaveLength(history.length);
@@ -281,7 +281,7 @@ describe('a saved game that cannot be trusted', () => {
     expect(restored).not.toBeNull();
     expect(restored!.history).toHaveLength(1);
     expect(restored!.history[0]).toEqual(newGame());
-    expect(mandatoryTimelines(restored!.history[0])).toHaveLength(1);
+    expect(mandatoryTimelines(restored!.history[0]!)).toHaveLength(1);
   });
 });
 
@@ -328,7 +328,7 @@ describe('the setup a save names', () => {
   });
 
   it('keeps a puzzle only with everything a puzzle needs', () => {
-    const puzzle = PUZZLES[0];
+    const puzzle = PUZZLES[0]!;
     const whole = {
       mode: 'puzzle',
       puzzleId: puzzle.id,

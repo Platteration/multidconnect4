@@ -79,7 +79,7 @@ describe('bot', () => {
     expect(pendingTimelines(g)).toHaveLength(2);
     const steps = playTurn(g, { level: 2, player: 1 }, seeded());
     expect(steps).toHaveLength(2);
-    expect(steps[1].toMove).toBe(0);
+    expect(steps[1]?.toMove).toBe(0);
   });
 
   it('never picks an illegal action over many random games', () => {
