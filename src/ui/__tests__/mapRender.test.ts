@@ -22,10 +22,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 import React from 'react';
 import { Animated, ScrollView } from 'react-native';
 import TestRenderer, { ReactTestInstance, ReactTestRenderer, act } from 'react-test-renderer';
-import { Action, BoardRef, GameState, Timeline, applyAction, getTimeline, latestBoard, newGame, timelineLabel } from '../../engine';
+import { Action, BoardRef, GameState, Timeline, applyAction, getTimeline, latestBoard, latestRef, newGame, timelineLabel } from '../../engine';
+import { MINI_HEIGHT, MINI_WIDTH } from '../MiniBoard';
 import { MAP_LAYOUT, MultiverseMap } from '../MultiverseMap';
 
-const { HEADER, ROW, SLOT } = MAP_LAYOUT;
+const { HEADER, ROW, SLOT, SLOT_TOP } = MAP_LAYOUT;
 
 declare const require: (name: string) => { readFileSync(path: string, encoding: string): string };
 declare const __dirname: string;
@@ -176,11 +177,9 @@ describe('what the map mounts', () => {
  */
 describe('less motion', () => {
   const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
+  const played = [drop(0), drop(1), drop(2), drop(3)].reduce((s, a) => applyAction(s, a), newGame());
   /** A state whose last action is a time travel: the one thing the map animates. */
-  const travelled = (() => {
-    const played = [drop(0), drop(1), drop(2), drop(3)].reduce((s, a) => applyAction(s, a), newGame());
-    return applyAction(played, { type: 'travel', from: { timeline: 0, row: 0, col: 0 }, to: { timeline: 0, turn: 0 }, col: 6 });
-  })();
+  const travelled = applyAction(played, { type: 'travel', from: { timeline: 0, row: 0, col: 0 }, to: { timeline: 0, turn: 0 }, col: 6 });
   const focus: BoardRef = { timeline: 1, turn: 1 };
 
   let timing: jest.SpyInstance;
@@ -204,6 +203,35 @@ describe('less motion', () => {
     expect(scrollSpy.mock.calls.flat()).toContainEqual({ x: focusOffset(focus).x, animated: true });
     expect(scrollSpy.mock.calls.flat()).toContainEqual({ y: focusOffset(focus).y, animated: true });
     act(() => tree.unmount());
+  });
+
+  it('flies the disc from the board it was lifted off to the board it landed on', () => {
+    // The centre of a board's thumbnail, by the layout the map exports: the
+    // arithmetic map.test.ts measures the drawn boards against.
+    const centre = (ref: BoardRef) => ({
+      x: (ref.turn + 1) * SLOT + MINI_WIDTH / 2,
+      y: HEADER + ref.timeline * ROW + SLOT_TOP + MINI_HEIGHT / 2,
+    });
+    // Named from the game, not from the travel's record of the boards it made:
+    // the disc was lifted off the newest board of timeline 0 as it stood before
+    // the travel, and landed on the one board of the timeline the travel opened.
+    const liftedOff = latestRef(getTimeline(played, 0));
+    const landedOn = latestRef(getTimeline(travelled, 1));
+    expect(liftedOff).toEqual({ timeline: 0, turn: 4 });
+    expect(landedOn).toEqual({ timeline: 1, turn: 1 });
+
+    const setValue = jest.spyOn(Animated.ValueXY.prototype, 'setValue');
+    try {
+      const tree = render(travelled, focus);
+      // The flight is the one value the map animates, the first thing it times.
+      const flight = timing.mock.calls[0]![0];
+      const placed = setValue.mock.calls.filter((_, i) => setValue.mock.contexts[i] === flight);
+      expect(placed[0]).toEqual([centre(liftedOff)]);
+      expect(timing.mock.calls[0]![1]).toMatchObject({ toValue: centre(landedOn) });
+      act(() => tree.unmount());
+    } finally {
+      setValue.mockRestore();
+    }
   });
 
   it('holds the flight still and jumps the scroll when less motion is asked for', () => {
