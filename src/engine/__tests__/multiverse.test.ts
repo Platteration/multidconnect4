@@ -1,9 +1,10 @@
 import { boardFromRows, cellAt, dropDisc, emptyBoard, findLines } from '../board';
-import { chooseAction } from '../bot';
+import { chooseAction, enumerateActions } from '../bot';
 import {
   Action,
   GameState,
   IllegalAction,
+  allBoards,
   applyAction,
   canEndTurn,
   canRotate,
@@ -11,6 +12,7 @@ import {
   optionalTimelines,
   presentTurn,
   getBoard,
+  getTimeline,
   latestTurn,
   newGame,
   pendingTimelines,
@@ -36,7 +38,7 @@ describe('multiverse basics', () => {
   it('passes the turn after a drop', () => {
     const g = play(newGame(), drop(0, 3));
     expect(g.toMove).toBe(1);
-    expect(latestTurn(g.timelines[0])).toBe(1);
+    expect(latestTurn(getTimeline(g, 0))).toBe(1);
     expect(cellAt(getBoard(g, { timeline: 0, turn: 1 })!, 0, 3)).toBe(0);
     expect(g.lastCreated).toEqual([{ timeline: 0, turn: 1 }]);
   });
@@ -76,7 +78,7 @@ describe('time travel', () => {
     expect(cellAt(origin, 0, 0)).toBeNull();
     expect(cellAt(origin, 0, 2)).toBe(0);
     // Branch starts at turn 3 with the disc added to the turn-2 board.
-    const branch = g.timelines[1];
+    const branch = getTimeline(g, 1);
     expect(branch.startTurn).toBe(3);
     expect(branch.createdBy).toBe(0);
     expect(branch.branchedFrom).toEqual({ timeline: 0, turn: 2 });
@@ -477,5 +479,165 @@ describe('strict present rule', () => {
         if (!canEndTurn(g)) expect(presentTurn(g) % 2).toBe(g.toMove);
       }
     }
+  });
+});
+
+describe('actions pointing outside a board', () => {
+  // A game code carries raw actions, so row/column indices are untrusted.
+  // Row-major storage means column `cols` aliases the next row up, which once
+  // let a pop take a disc that was not on the bottom row and let the removal
+  // write past the end of the cells array.
+  const popGame = (): GameState =>
+    play(newGame({ popOut: true }), drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1));
+
+  it('rejects a pop outside the board instead of taking a disc from the row above', () => {
+    const g = popGame();
+    expect(g.toMove).toBe(0);
+    const board = getBoard(g, { timeline: 0, turn: 4 })!;
+    // The cell an unchecked read would have aliased: row 1, column 0 is Red's.
+    expect(cellAt(board, 1, 0)).toBe(0);
+    expect(() => applyAction(g, { type: 'pop', timeline: 0, col: 7 })).toThrow(IllegalAction);
+    expect(() => applyAction(g, { type: 'pop', timeline: 0, col: -1 })).toThrow(IllegalAction);
+    // A legal pop still works, so the guard has not closed the rule down.
+    const popped = applyAction(g, { type: 'pop', timeline: 0, col: 0 });
+    expect(getBoard(popped, { timeline: 0, turn: 5 })!.cells).toHaveLength(board.cells.length);
+  });
+
+  it('rejects a time travel from a cell outside the board', () => {
+    const g = play(newGame(), drop(0, 0), drop(0, 1), drop(0, 0), drop(0, 1));
+    for (const from of [
+      { timeline: 0, row: 0, col: 7 },
+      { timeline: 0, row: 6, col: 0 },
+      { timeline: 0, row: -1, col: 0 },
+    ]) {
+      expect(() =>
+        applyAction(g, { type: 'travel', from, to: { timeline: 0, turn: 0 }, col: 3 }),
+      ).toThrow(IllegalAction);
+    }
+    // The real disc at (0, 0) still travels.
+    const travelled = applyAction(g, {
+      type: 'travel',
+      from: { timeline: 0, row: 0, col: 0 },
+      to: { timeline: 0, turn: 0 },
+      col: 3,
+    });
+    for (const { board } of allBoards(travelled)) {
+      expect(board.cells).toHaveLength(board.rows * board.cols);
+      expect(board.cells.every((c) => c === 0 || c === 1 || c === null)).toBe(true);
+    }
+  });
+});
+
+describe('a travel that wins on the new timeline', () => {
+  it('beats a line the collapse hands the opponent', () => {
+    // Column 0 from the bottom: Y R Y Y Y - pulling the Red disc out drops the
+    // yellows into a vertical four. The disc lands completing R R R R on the
+    // past board, so the mover's line must win, on whichever board it is.
+    const g: GameState = {
+      ...newGame(),
+      timelines: [
+        {
+          id: 0,
+          startTurn: 0,
+          boards: [
+            boardFromRows(['.......', '.......', '.......', '.......', '.......', 'RRR....']),
+            emptyBoard(),
+            boardFromRows([
+              '.......',
+              'Y......',
+              'Y......',
+              'Y......',
+              'R......',
+              'YR.....',
+            ]),
+          ],
+          createdBy: null,
+          branchedFrom: null,
+          origin: null,
+        },
+      ],
+      toMove: 0,
+    };
+    const after = applyAction(g, {
+      type: 'travel',
+      from: { timeline: 0, row: 1, col: 0 },
+      to: { timeline: 0, turn: 0 },
+      col: 3,
+    });
+    // Both boards the action created hold a four in a row.
+    expect(after.lastCreated).toEqual([
+      { timeline: 0, turn: 3 },
+      { timeline: 1, turn: 1 },
+    ]);
+    expect(findLines(getBoard(after, { timeline: 0, turn: 3 })!).map((l) => l.player)).toEqual([1]);
+    expect(findLines(getBoard(after, { timeline: 1, turn: 1 })!).map((l) => l.player)).toEqual([0]);
+    expect(after.status).toBe('won');
+    expect(after.win!.player).toBe(0);
+    expect(after.win!.board).toEqual({ timeline: 1, turn: 1 });
+  });
+});
+
+/**
+ * Timeline ids are the timelines' own positions in the array, and other code
+ * leans on it: the map chooses the rows it draws by slicing that array and
+ * then places each one at HEADER + tl.id * ROW, so a sparse or reordered id
+ * would draw a row in the wrong place or off the map entirely. Nothing said
+ * so anywhere, so nothing would have noticed it changing.
+ */
+describe('timeline ids', () => {
+  const dense = (state: GameState) => state.timelines.every((tl, i) => tl.id === i);
+
+  it('are the index of the timeline, after every action of every game', () => {
+    let seed = 7;
+    const rng = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    let travels = 0;
+    for (const popOut of [false, true]) {
+      for (const flip of [false, true]) {
+        for (const strictPresent of [false, true]) {
+          for (let game = 0; game < 4; game++) {
+            let state = newGame({ popOut, flip, strictPresent });
+            expect(dense(state)).toBe(true);
+            for (let move = 0; move < 50 && state.status === 'playing'; move++) {
+              // A random legal action rather than a chosen one: this is about
+              // the shapes a game can reach, not about playing it well.
+              const legal = enumerateActions(state, 3);
+              const action = legal[Math.floor(rng() * legal.length)];
+              if (!action) break;
+              state = applyAction(state, action);
+              if (action.type === 'travel') travels++;
+              // Checked on every state, not only at the end: an id that is
+              // wrong for one move draws one frame in the wrong place.
+              expect(dense(state)).toBe(true);
+              expect(state.timelines[state.timelines.length - 1]?.id).toBe(state.timelines.length - 1);
+            }
+          }
+        }
+      }
+    }
+    // The games really did branch, or this pins nothing at all.
+    expect(travels).toBeGreaterThan(10);
+  });
+
+  it('are never reused or renumbered as timelines are added', () => {
+    // A travel appends; nothing removes a timeline or renumbers one, so the
+    // id list only ever grows and only ever reads 0..n-1.
+    let state: GameState = newGame();
+    const lists: number[][] = [];
+    for (let move = 0; move < 60 && state.timelines.length < 4; move++) {
+      const legal = enumerateActions(state, 3);
+      const action = legal.find((a) => a.type === 'travel') ?? legal[0];
+      if (!action) break;
+      const next = applyAction(state, action);
+      if (next.status !== 'playing') break;
+      state = next;
+      lists.push(state.timelines.map((tl) => tl.id));
+    }
+    expect(state.timelines.length).toBeGreaterThanOrEqual(4);
+    for (const list of lists) expect(list).toEqual(list.map((_, i) => i));
+    const lengths = lists.map((l) => l.length);
+    expect(lengths).toEqual([...lengths].sort((a, b) => a - b));
   });
 });

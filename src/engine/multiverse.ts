@@ -23,11 +23,13 @@
  */
 import {
   Board,
+  Line,
   Spin,
   cellAt,
   dropDisc,
   emptyBoard,
   flip,
+  inside,
   isFull,
   removeDisc,
   rotate,
@@ -39,6 +41,7 @@ export interface Timeline {
   id: number;
   /** Turn index of boards[0]. The root timeline starts at 0. */
   startTurn: number;
+  /** Never empty: a timeline is made with the board it starts from, and boards are only added. */
   boards: Board[];
   /** Who created this timeline by travelling. null for the root timeline. */
   createdBy: Player | null;
@@ -131,7 +134,7 @@ export function latestTurn(tl: Timeline): number {
 }
 
 export function latestBoard(tl: Timeline): Board {
-  return tl.boards[tl.boards.length - 1];
+  return tl.boards[tl.boards.length - 1]!;
 }
 
 export function latestRef(tl: Timeline): BoardRef {
@@ -268,32 +271,41 @@ export function applyAction(state: GameState, action: Action): GameState {
   }
   const timelines = state.timelines.map((tl) => ({ ...tl, boards: tl.boards.slice() }));
   const created: BoardRef[] = [];
+  // Every caller below has just found this timeline in `state`, whose copy is
+  // at the same index: a timeline's id is its place in the list.
+  const extend = (id: number, board: Board) => {
+    const tl = timelines[id]!;
+    tl.boards.push(board);
+    created.push(latestRef(tl));
+  };
 
   if (action.type === 'drop') {
     const tl = assertPending(state, action.timeline);
     const dropped = dropDisc(latestBoard(tl), action.col, me);
     if (!dropped) throw new IllegalAction('that column is full');
-    timelines[tl.id].boards.push(dropped.board);
-    created.push(latestRef(timelines[tl.id]));
+    extend(tl.id, dropped.board);
   } else if (action.type === 'rotate' || action.type === 'flip') {
     const tl = assertPending(state, action.timeline);
     const board = latestBoard(tl);
     if (action.type === 'flip' && !state.rules.flip) throw new IllegalAction('flipping is not enabled in this game');
     if (board.spun) throw new IllegalAction('that board was just turned; play a disc first');
     if (board.cells.every((c) => c === null)) throw new IllegalAction('turning an empty board would change nothing');
-    timelines[tl.id].boards.push(action.type === 'flip' ? flip(board) : rotate(board, action.spin));
-    created.push(latestRef(timelines[tl.id]));
+    extend(tl.id, action.type === 'flip' ? flip(board) : rotate(board, action.spin));
   } else if (action.type === 'pop') {
     if (!state.rules.popOut) throw new IllegalAction('pop out is not enabled in this game');
     const tl = assertPending(state, action.timeline);
     const board = latestBoard(tl);
-    if (cellAt(board, 0, action.col) !== me) throw new IllegalAction('you can only pop out your own disc from the bottom row');
-    timelines[tl.id].boards.push(removeDisc(board, 0, action.col));
-    created.push(latestRef(timelines[tl.id]));
+    if (!inside(board, 0, action.col) || cellAt(board, 0, action.col) !== me) {
+      throw new IllegalAction('you can only pop out your own disc from the bottom row');
+    }
+    extend(tl.id, removeDisc(board, 0, action.col));
   } else {
     const from = assertPending(state, action.from.timeline);
     const originBoard = latestBoard(from);
-    if (cellAt(originBoard, action.from.row, action.from.col) !== me) {
+    if (
+      !inside(originBoard, action.from.row, action.from.col) ||
+      cellAt(originBoard, action.from.row, action.from.col) !== me
+    ) {
       throw new IllegalAction('you can only send your own discs back in time');
     }
     if (!isTravelTarget(state, from.id, action.to)) {
@@ -303,8 +315,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     const arrived = dropDisc(target, action.col, me);
     if (!arrived) throw new IllegalAction('that column is full on the past board');
 
-    timelines[from.id].boards.push(removeDisc(originBoard, action.from.row, action.from.col));
-    created.push(latestRef(timelines[from.id]));
+    extend(from.id, removeDisc(originBoard, action.from.row, action.from.col));
 
     const branch: Timeline = {
       id: timelines.length,
@@ -326,12 +337,20 @@ export function applyAction(state: GameState, action: Action): GameState {
   };
 
   // Four in a row on any board that just changed ends the game. The mover's
-  // lines take priority over any line the opponent gets from a collapse.
-  for (const ref of created) {
-    const line = winnerOf(getBoard(next, ref)!, me);
-    if (line) {
-      return { ...next, status: 'won', win: { player: line.player, board: ref, cells: line.cells } };
-    }
+  // line wins ties across ALL the boards this action created, not just within
+  // one of them: a travel creates the collapsed origin board first and the
+  // board the disc landed on second, and a line the collapse handed the
+  // opponent must not beat the line the traveller just made.
+  const outcomes = created
+    .map((ref) => ({ ref, line: winnerOf(getBoard(next, ref)!, me) }))
+    .filter((o): o is { ref: BoardRef; line: Line } => o.line !== null);
+  const decisive = outcomes.find((o) => o.line.player === me) ?? outcomes[0];
+  if (decisive) {
+    return {
+      ...next,
+      status: 'won',
+      win: { player: decisive.line.player, board: decisive.ref, cells: decisive.line.cells },
+    };
   }
 
   return resolveTurn(next);

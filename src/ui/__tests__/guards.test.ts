@@ -1,0 +1,221 @@
+import { Action, GameState, applyAction, newGame } from '../../engine';
+import { botShouldMove, cellLabel, gameOverVisible, linkNeedsConfirming, travelOrigin } from '../guards';
+import type { Selection } from '../useGame';
+
+const drop = (timeline: number, col: number): Action => ({ type: 'drop', timeline, col });
+
+// The screen cannot be rendered here (it is React Native all the way down), so
+// that these helpers are the ones it really uses is checked by reading it.
+// Declared locally because this project carries no node type definitions.
+declare const require: (name: string) => { readFileSync(path: string, encoding: string): string };
+declare const __dirname: string;
+const source = (file: string): string => require('fs').readFileSync(`${__dirname}/../${file}`, 'utf8');
+
+describe('when the bot may move', () => {
+  const ok = { replaying: false, humanTurn: false, spinning: false, status: 'playing' as const };
+
+  it('moves only when the live game is waiting for it', () => {
+    expect(botShouldMove(ok)).toBe(true);
+    expect(botShouldMove({ ...ok, humanTurn: true })).toBe(false);
+    expect(botShouldMove({ ...ok, spinning: true })).toBe(false);
+    expect(botShouldMove({ ...ok, status: 'won' })).toBe(false);
+    expect(botShouldMove({ ...ok, status: 'draw' })).toBe(false);
+  });
+
+  it('never moves while the replay is open', () => {
+    // Opening the replay used to force "it is not the human's turn", which
+    // started the bot loop instead of stopping it - and the move it chose from
+    // the replayed state was then applied to the live game.
+    expect(botShouldMove({ ...ok, replaying: true })).toBe(false);
+    expect(botShouldMove({ ...ok, replaying: true, humanTurn: true })).toBe(false);
+  });
+
+  it('is asked about the live game, not the state on screen', () => {
+    const src = source('GameScreen.tsx');
+    expect(src).toContain('chooseAction(liveState');
+    expect(src).not.toMatch(/chooseAction\(state\b/);
+    expect(src).toMatch(/botShouldMove\(\{[^}]*humanTurn: game\.humanTurn/);
+  });
+});
+
+describe('the origin of a picked-up disc', () => {
+  const live: GameState = [drop(0, 0), drop(0, 1), drop(0, 2), drop(0, 3)].reduce(
+    (s, a) => applyAction(s, a),
+    newGame(),
+  );
+  const branched = applyAction(live, {
+    type: 'travel',
+    from: { timeline: 0, row: 0, col: 0 },
+    to: { timeline: 0, turn: 0 },
+    col: 6,
+  });
+  const holding: Selection = { kind: 'disc', from: { timeline: 1, row: 0, col: 6 } };
+
+  it('is the newest board of the timeline the disc sits on', () => {
+    expect(travelOrigin(branched, holding, false)).toEqual({ timeline: 1, turn: 1 });
+    expect(travelOrigin(branched, { kind: 'none' }, false)).toBeNull();
+  });
+
+  it('is nothing while replaying, even a state that has that timeline', () => {
+    // The state on screen may be the live one; the origin is still not read.
+    expect(travelOrigin(branched, holding, true)).toBeNull();
+    // And the replayed state has one timeline; the held disc is on the second.
+    expect(newGame().timelines).toHaveLength(1);
+    expect(() => travelOrigin(newGame(), holding, true)).not.toThrow();
+    expect(travelOrigin(newGame(), holding, true)).toBeNull();
+    // Even asked about the live game, a timeline that is gone is not a throw.
+    expect(travelOrigin(newGame(), holding, false)).toBeNull();
+  });
+
+  it('is what the screen actually uses, and the replay puts the disc down', () => {
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/const origin = travelOrigin\(state, selection, replaying\)/);
+    expect(src).toMatch(/const openReplay = \(\) => \{\s*game\.cancel\(\);\s*setReplayIndex\(0\);/);
+    expect(src).not.toMatch(/onPress: \(\) => setReplayIndex\(0\)/);
+  });
+});
+
+describe('a game arriving by link', () => {
+  it('is offered, not taken, while a game is in progress', () => {
+    // The scheme is registered with no host and no path, so any app, QR code
+    // or web page can hand the app a code; it used to load at once and the
+    // autosave then wrote the replacement over the real game.
+    expect(linkNeedsConfirming(1)).toBe(false);
+    expect(linkNeedsConfirming(2)).toBe(true);
+    expect(linkNeedsConfirming(40)).toBe(true);
+  });
+
+  it('is what the screen actually does with a link', () => {
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/if \(linkNeedsConfirming\(game\.history\.length\)\) setLinkedCode\(code\);/);
+    // Both the cold-start URL and every later one go through the offer, and
+    // nothing loads a link's code without passing through it.
+    expect(src.match(/if \(code\) offerCodeRef\.current\(code\);/g)).toHaveLength(2);
+    expect(src).not.toMatch(/loadCodeRef/);
+  });
+
+  it('is taken out of the web address bar once answered, either way', () => {
+    // A code left in the address bar is read again on every reload: loaded
+    // over whatever was played since when the game is young, asked about
+    // again when it is not. Accepting and declining both clear it, and the
+    // only path that loads a linked code is the one that clears it.
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/const acceptLinkedCode = \(code: string\) => \{\s*loadCode\(code\);\s*clearCodeFromUrl\(\);\s*\};/);
+    expect(src).toMatch(/else acceptLinkedCode\(code\);/);
+    expect(src).toMatch(/if \(code\) acceptLinkedCode\(code\);/);
+    expect(src).toMatch(/onCancel=\{\(\) => \{\s*setLinkedCode\(null\);\s*clearCodeFromUrl\(\);\s*\}\}/);
+    expect(src).not.toMatch(/if \(code\) loadCode\(code\);/);
+  });
+});
+
+describe('the code the screen offers', () => {
+  it('is the one the app would take back, asked for before the buttons are drawn', () => {
+    // encodeGame writes a code for any game at all, including one past what
+    // decodeGame will replay. Building the sheet's code with it left Copy and
+    // Share open on a game that could not be loaded, so the refusal landed on
+    // the recipient instead - who was told the sender's real game was fake.
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/shareCodeFor\(game\.history, game\.setup\)/);
+    expect(src).not.toMatch(/encodeGame\(/);
+    // Both the code and the reason there is none reach the sheet.
+    expect(src).toMatch(/code=\{share\.code\}/);
+    expect(src).toMatch(/problem=\{share\.problem\}/);
+    // And the link is built from the checked code, never from the raw game.
+    expect(src).toMatch(/link=\{share\.code \? webLinkFor\(share\.code\) : null\}/);
+  });
+});
+
+describe('a saved game that did not all come back', () => {
+  it('is said out loud, not replaced in silence', () => {
+    // App.tsx already knows the difference between nothing stored and stored
+    // but unusable, and it used to spend that knowledge on removeKey alone:
+    // the player was handed a new game at turn 0 with no word of the one they
+    // had. Both losses now reach the screen.
+    const app = source('../../App.tsx');
+    expect(app).toMatch(/if \(v && !restored\) \{/);
+    expect(app).toMatch(/setNotice\('The game that was saved could not be read/);
+    expect(app).toMatch(/restored\?\.truncated/);
+    expect(app).toMatch(/else if \(restored\?\.truncated\) \{\s*setNotice\(/);
+    expect(app).toMatch(/initialNotice=\{notice\}/);
+    // And the screen shows it where it shows everything else it has to say.
+    const screen = source('GameScreen.tsx');
+    expect(screen).toMatch(/notice \?\? hint/);
+    expect(screen).toMatch(/initialNotice && game\.history\.length === restoredLength\.current/);
+    // And a game already past that length is told before the next launch,
+    // not after it: the notice alone would repeat the loss every session.
+    expect(screen).toMatch(/const pastReload = game\.history\.length - 1 > MAX_SAVED_ACTIONS;/);
+    expect(screen).toMatch(/pastReload\s*\?/);
+  });
+});
+
+describe('the game-over sheet', () => {
+  const playing = newGame();
+  const finished: GameState = { ...playing, status: 'won' };
+
+  it('shows once the live game is over', () => {
+    expect(gameOverVisible(finished, false, false, false)).toBe(true);
+    expect(gameOverVisible(playing, false, false, false)).toBe(false);
+  });
+
+  it('stays away for the whole of a replay', () => {
+    // 'Watch the replay' dismisses the sheet and seeks to the start, and every
+    // state before the last one is still 'playing', which cleared the
+    // dismissal again. The sheet came back over the replay bar because of it,
+    // so replaying is enough on its own to keep it away.
+    expect(gameOverVisible(finished, false, true, true)).toBe(false);
+    expect(gameOverVisible(finished, false, true, false)).toBe(false);
+  });
+
+  it('does not come back once dismissed, and never shows for a puzzle', () => {
+    // A puzzle has its own result sheet.
+    expect(gameOverVisible(finished, true, false, false)).toBe(false);
+    expect(gameOverVisible(finished, false, false, true)).toBe(false);
+  });
+
+  it('is asked about the live game, and so is its dismissal', () => {
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/visible=\{gameOverVisible\(liveState, !!puzzle, replaying, gameOverDismissed\)\}/);
+    // The dismissal is cleared by the live game starting over, not by the
+    // replay walking back through states that are still being played.
+    expect(src).toMatch(/if \(liveState\.status === 'playing'\) setGameOverDismissed\(false\);/);
+    expect(src).not.toMatch(/if \(state\.status === 'playing'\) setGameOverDismissed/);
+  });
+});
+
+describe('what the screen saves', () => {
+  it('asks for the decision rather than writing whatever it holds', () => {
+    // The autosave used to write any history with a move in it, which kept a
+    // finished game - restored at the next launch as a game that was already
+    // over, and folded into the record again for it.
+    const src = source('GameScreen.tsx');
+    expect(src).toMatch(/const decision = saveDecision\(game\.history, game\.setup\);/);
+    expect(src).toMatch(/if \(decision\.kind === 'write'\)/);
+    expect(src).not.toMatch(/toSavedGame\(game\.history/);
+    expect(src).not.toMatch(/if \(game\.history\.length > 1\) \{/);
+  });
+});
+
+describe('cell labels', () => {
+  const names: readonly [string, string] = ['Red', 'Yellow'];
+
+  it('names the player on the disc', () => {
+    expect(cellLabel(0, 0, 0, names)).toBe('row 1 column 1 red');
+    expect(cellLabel(2, 3, 1, names)).toBe('row 3 column 4 yellow');
+    expect(cellLabel(0, 0, null, names)).toBe('row 1 column 1 empty');
+  });
+
+  it('calls anything that is not a player empty, instead of throwing', () => {
+    // A corrupt board could hold undefined; reading a name off it took the
+    // whole app down, because nothing above this catches a render throw.
+    for (const value of [undefined, -1, 2, '0', {}]) {
+      expect(() => cellLabel(0, 0, value, names)).not.toThrow();
+      expect(cellLabel(0, 0, value, names)).toBe('row 1 column 1 empty');
+    }
+  });
+
+  it('is what the board actually renders', () => {
+    const src = source('DiscBoard.tsx');
+    expect(src).toContain('cellLabel(r, c, value, colors.playerNames)');
+    expect(src).not.toMatch(/playerNames\[value\]/);
+  });
+});

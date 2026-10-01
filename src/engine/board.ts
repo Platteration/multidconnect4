@@ -22,6 +22,7 @@ export type Spin = 'cw' | 'ccw';
 export interface Board {
   readonly cols: number;
   readonly rows: number;
+  /** Always exactly `cols * rows` long: every function here builds a board that way. */
   readonly cells: readonly Cell[];
   /** True when this board was produced by spinning. A spun board can't be spun again straight away. */
   readonly spun: boolean;
@@ -45,8 +46,21 @@ export function emptyBoard(cols = COLS, rows = ROWS): Board {
   return { cols, rows, cells: Array<Cell>(rows * cols).fill(null), spun: false };
 }
 
+/** True when (row, col) names a real cell of this board. */
+export function inside(board: Dims, row: number, col: number): boolean {
+  return (
+    Number.isInteger(row) && Number.isInteger(col) && row >= 0 && row < board.rows && col >= 0 && col < board.cols
+  );
+}
+
+/**
+ * The cell at (row, col), or null when that is not a cell of this board.
+ * Row-major storage means an out-of-range column silently aliases another
+ * row, so callers must never be trusted to have checked: an action arriving
+ * in a shared game code has not.
+ */
 export function cellAt(board: Board, row: number, col: number): Cell {
-  return board.cells[index(board, row, col)];
+  return inside(board, row, col) ? board.cells[index(board, row, col)]! : null;
 }
 
 /** Lowest empty row in a column, or -1 when the column is full. */
@@ -83,9 +97,12 @@ export function dropDisc(board: Board, col: number, player: Player): { board: Bo
  * board rearranges itself.
  */
 export function removeDisc(board: Board, row: number, col: number): Board {
+  // Out of range would write past the end of the array and leave a hole that
+  // gravity can never fill again; there is nothing to remove, so do nothing.
+  if (!inside(board, row, col)) return board;
   const cells = board.cells.slice();
   for (let r = row; r < board.rows - 1; r++) {
-    cells[index(board, r, col)] = cells[index(board, r + 1, col)];
+    cells[index(board, r, col)] = cells[index(board, r + 1, col)]!;
   }
   cells[index(board, board.rows - 1, col)] = null;
   return { ...board, cells, spun: false };
@@ -97,7 +114,7 @@ export function settle(board: Board): Board {
   for (let c = 0; c < board.cols; c++) {
     let fill = 0;
     for (let r = 0; r < board.rows; r++) {
-      const v = board.cells[index(board, r, c)];
+      const v = board.cells[index(board, r, c)]!;
       if (v !== null) cells[index(board, fill++, c)] = v;
     }
   }
@@ -115,7 +132,7 @@ export function rotate(board: Board, spin: Spin): Board {
   const cells = Array<Cell>(next.rows * next.cols).fill(null);
   for (let r = 0; r < board.rows; r++) {
     for (let c = 0; c < board.cols; c++) {
-      const v = board.cells[index(board, r, c)];
+      const v = board.cells[index(board, r, c)]!;
       if (v === null) continue;
       // Clockwise: (x, y) -> (y, W-1-x). Counter-clockwise: (x, y) -> (H-1-y, x).
       const rr = spin === 'cw' ? board.cols - 1 - c : c;
@@ -131,7 +148,7 @@ export function flip(board: Board): Board {
   const cells = Array<Cell>(board.rows * board.cols).fill(null);
   for (let r = 0; r < board.rows; r++) {
     for (let c = 0; c < board.cols; c++) {
-      cells[index(board, board.rows - 1 - r, board.cols - 1 - c)] = board.cells[index(board, r, c)];
+      cells[index(board, board.rows - 1 - r, board.cols - 1 - c)] = board.cells[index(board, r, c)]!;
     }
   }
   return settle({ ...board, cells, spun: true });
@@ -166,7 +183,7 @@ export function findLines(board: Board): Line[] {
   const lines: Line[] = [];
   for (let r = 0; r < board.rows; r++) {
     for (let c = 0; c < board.cols; c++) {
-      const p = board.cells[index(board, r, c)];
+      const p = board.cells[index(board, r, c)]!;
       if (p === null) continue;
       for (const [dr, dc] of DIRECTIONS) {
         const cells = [index(board, r, c)];
@@ -198,8 +215,9 @@ export function findLines(board: Board): Line[] {
  */
 export function winnerOf(board: Board, preferred: Player): Line | null {
   const lines = findLines(board);
-  if (lines.length === 0) return null;
-  return lines.find((l) => l.player === preferred) ?? lines[0];
+  const [first] = lines;
+  if (!first) return null;
+  return lines.find((l) => l.player === preferred) ?? first;
 }
 
 /**

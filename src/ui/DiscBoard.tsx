@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { Board, index, type Player } from '../engine';
+import { cellLabel } from './guards';
 import { Theme, radius } from './theme';
 import { useTheme } from '../app/theme';
 
@@ -66,21 +67,21 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
           disabled={!interactive}
           style={{ width: cellSize, height: cellSize, padding: gap }}
           accessibilityRole="button"
-          accessibilityLabel={`row ${r + 1} column ${c + 1} ${value === null ? 'empty' : colors.playerNames[value].toLowerCase()}`}
+          accessibilityLabel={cellLabel(r, c, value, colors.playerNames)}
         >
           <Animated.View
             style={[
               styles.hole,
               { width: disc, height: disc, borderRadius: disc / 2 },
               dropped && dropped.row === r && dropped.col === c ? { transform: [{ translateY: fall }] } : null,
-              value !== null && { borderBottomWidth: 5, backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
+              (value === 0 || value === 1) && { borderBottomWidth: 5, backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
               isGhost && { backgroundColor: colors.players[ghostPlayer!], opacity: 0.14, borderColor: 'transparent' },
               isSelected && styles.selected,
               isHighlighted && styles.highlighted,
             ]}
           >
-            {value !== null ? <View pointerEvents="none" style={styles.discShine} /> : null}
-            {patterns && value !== null ? <Marker player={value} size={disc} /> : null}
+            {value === 0 || value === 1 ? <View pointerEvents="none" style={styles.discShine} /> : null}
+            {patterns && (value === 0 || value === 1) ? <Marker player={value} size={disc} /> : null}
           </Animated.View>
         </Pressable>,
       );

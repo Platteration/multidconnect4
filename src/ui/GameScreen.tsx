@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Linking, ScrollView, StyleSheet, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Linking, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Action,
@@ -25,16 +25,19 @@ import {
 } from '../engine';
 import { useEntitlements } from '../app/entitlements';
 import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
-import { keys, removeKey, saveJson } from '../app/persist';
+import { KEYS, removeKey, saveJson } from '../app/persist';
+import { MAX_SAVED_ACTIONS, saveDecision } from '../app/savedGame';
 import { useSettings } from '../app/settings';
-import { codeFromUrl, webLinkFor } from '../app/links';
+import { useReduceMotion } from '../motion';
+import { clearCodeFromUrl, codeFromUrl, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { useProgress } from '../app/progress';
-import { decodeGame, encodeGame } from '../app/share';
+import { decodeGame, shareCodeFor } from '../app/share';
 import { GameSetup } from '../app/setup';
 import { PUZZLES, puzzleById } from '../puzzles';
 import { DiscBoard, boardHeight } from './DiscBoard';
+import { botShouldMove, gameOverVisible, linkNeedsConfirming, travelOrigin } from './guards';
 import { MenuModal } from './MenuModal';
 import { NewGameModal } from './NewGameModal';
 import { PuzzleResultModal } from './PuzzleResultModal';
@@ -45,10 +48,10 @@ import { StatsModal } from './StatsModal';
 import { WelcomeModal } from './WelcomeModal';
 import { MiniBoard } from './MiniBoard';
 import { ShareModal } from './ShareModal';
-import { Button, GameOverModal, RulesModal } from './Modals';
+import { Button, ConfirmModal, GameOverModal, RulesModal } from './Modals';
 import { MultiverseMap } from './MultiverseMap';
-import { Row, Section, SettingsModal } from './SettingsModal';
-import { Theme, radius, spacing } from './theme';
+import { Section, SettingsModal, SwitchRow } from './SettingsModal';
+import { Theme, headerTextStyles, radius, spacing } from './theme';
 import { useTheme } from '../app/theme';
 import { useGame } from './useGame';
 
@@ -56,12 +59,15 @@ interface Props {
   /** A saved game to resume, oldest state first. */
   initialHistory?: GameState[];
   initialSetup?: GameSetup;
+  /** What was lost on the way in, when a stored game came back short or not at all. */
+  initialNotice?: string | null;
 }
 
-export function GameScreen({ initialHistory, initialSetup }: Props) {
+export function GameScreen({ initialHistory, initialSetup, initialNotice }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
+  const reduceMotion = useReduceMotion(settings.reduceMotion);
   const { recordGame } = useStats();
   const { entitlements } = useEntitlements();
   const [statsOpen, setStatsOpen] = useState(false);
@@ -72,13 +78,22 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const game = useGame(initialHistory, rules, initialSetup);
   const { selection, targets } = game;
   // Replay: look at any earlier state read-only, without touching the live game.
+  // `liveState` is the game itself; `state` is only what is on screen, which
+  // during a replay is an earlier state and must never be played from.
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   const replaying = replayIndex !== null && replayIndex < game.history.length;
-  const state = replaying ? game.history[replayIndex] : game.state;
+  const liveState = game.state;
+  const state = replaying ? game.history[replayIndex]! : liveState;
   const focus = replaying ? (state.lastCreated[0] ?? { timeline: 0, turn: 0 }) : game.focus;
   const humanTurn = game.humanTurn && !replaying;
   const [shareOpen, setShareOpen] = useState(false);
   const [extrasOpen, setExtrasOpen] = useState(false);
+  // Opening the replay puts an older state on screen, so a disc picked up in
+  // the live game must be put down first: its timeline may not exist there.
+  const openReplay = () => {
+    game.cancel();
+    setReplayIndex(0);
+  };
 
   // Fold each finished game (not puzzles) into the record, once.
   const recordedRef = useRef<GameState | null>(null);
@@ -101,29 +116,39 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       return e instanceof Error ? e.message : String(e);
     }
   };
-  const loadCodeRef = useRef(loadCode);
-  loadCodeRef.current = loadCode;
+  // A link is offered, not obeyed: it can come from any other app, any QR
+  // code or any web page, and loading it would throw away the game the two
+  // players are in the middle of.
+  const [linkedCode, setLinkedCode] = useState<string | null>(null);
+  // Whether it loaded or not: a code left in the web address bar is read
+  // again on every reload, and one that was refused is refused again just as
+  // often - or asked about again, over a game that has moved on since.
+  const acceptLinkedCode = (code: string) => {
+    loadCode(code);
+    clearCodeFromUrl();
+  };
+  const offerCode = (code: string) => {
+    if (linkNeedsConfirming(game.history.length)) setLinkedCode(code);
+    else acceptLinkedCode(code);
+  };
+  const offerCodeRef = useRef(offerCode);
+  offerCodeRef.current = offerCode;
   useEffect(() => {
     Linking.getInitialURL()
       .then((url) => {
         const code = codeFromUrl(url);
-        if (code) {
-          const problem = loadCodeRef.current(code);
-          if (problem) Alert.alert('Could not load shared game', problem);
-        }
+        if (code) offerCodeRef.current(code);
       })
       .catch(() => {});
     const sub = Linking.addEventListener('url', ({ url }) => {
       const code = codeFromUrl(url);
-      if (code) {
-        const problem = loadCodeRef.current(code);
-        if (problem) Alert.alert('Could not load shared game', problem);
-      }
+      if (code) offerCodeRef.current(code);
     });
     return () => sub.remove();
   }, []);
 
-  // A tiny multiverse for the welcome pages: three moves, then a travel.
+  // A tiny multiverse for the welcome pages: four drops, then a travel back to
+  // turn 2. Timeline 0 ends at turn 5, and the travel opens timeline 1 with one board.
   const welcomeDemo = useMemo(() => {
     const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
     const steps: Action[] = [drop(3), drop(3), drop(2), drop(4), { type: 'travel', from: { timeline: 0, row: 0, col: 2 }, to: { timeline: 0, turn: 2 }, col: 5 }];
@@ -136,7 +161,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         body: 'Each turn makes a new board. The map at the bottom shows every board that ever existed, left to right through time.',
         art: (
           <View style={{ flexDirection: 'row', gap: 6 }}>
-            {welcomeDemo.timelines[0].boards.slice(0, 4).map((b, i) => (
+            {getTimeline(welcomeDemo, 0).boards.slice(0, 4).map((b, i) => (
               <MiniBoard key={i} board={b} />
             ))}
           </View>
@@ -147,9 +172,9 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         body: 'Tap one of your discs, then a glowing past board. History branches: a new timeline starts there with your extra disc, and your opponent must answer on it too.',
         art: (
           <View style={{ alignItems: 'center', gap: 6 }}>
-            <MiniBoard board={welcomeDemo.timelines[0].boards[2]} ring={colors.travel} badge="GO" />
+            <MiniBoard board={getTimeline(welcomeDemo, 0).boards[2]!} ring={colors.travel} badge="GO" />
             <Text style={{ color: colors.travel, fontWeight: '800' }}>↓</Text>
-            <MiniBoard board={welcomeDemo.timelines[1].boards[0]} ring={colors.players[1]} badge="play" />
+            <MiniBoard board={getTimeline(welcomeDemo, 1).boards[0]!} ring={colors.players[1]} badge="play" />
           </View>
         ),
       },
@@ -160,8 +185,14 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     ],
     [welcomeDemo, colors],
   );
-  const shareCode = useMemo(
-    () => (game.history.length > 1 && game.setup.mode !== 'puzzle' ? encodeGame(game.history, game.setup) : null),
+  // The code, or the reason this game has outgrown one. Asked here rather
+  // than left for the recipient: a code that cannot be loaded back must not
+  // be offered for copying, or the failure lands on the wrong phone.
+  const share = useMemo(
+    () =>
+      game.history.length > 1 && game.setup.mode !== 'puzzle'
+        ? shareCodeFor(game.history, game.setup)
+        : { code: null, problem: null },
     [game.history, game.setup],
   );
   const { width, height } = useWindowDimensions();
@@ -178,21 +209,39 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   useEffect(() => setHapticsEnabled(settings.haptics), [settings.haptics]);
   useEffect(() => setSoundEnabled(settings.sound), [settings.sound]);
 
-  // Save the game whenever it changes, a moment after the last change.
+  // Save the game whenever it changes, a moment after the last change. Only
+  // the actions are written; the history is rebuilt by replaying them.
+  const [saveFailed, setSaveFailed] = useState(false);
+  // A game that came back short says so until the player's next move, rather
+  // than for one frame nobody reads or over the top of every later hint.
+  const restoredLength = useRef(initialHistory?.length ?? 1);
+  const notice = initialNotice && game.history.length === restoredLength.current ? initialNotice : null;
+  // And a game heading for the same loss says so before it happens: what is
+  // saved past this is written but never replayed back.
+  const pastReload = game.history.length - 1 > MAX_SAVED_ACTIONS;
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (game.history.length > 1) void saveJson(keys.game, { version: 2, history: game.history, setup: game.setup });
-      else void removeKey(keys.game);
+      const decision = saveDecision(game.history, game.setup);
+      if (decision.kind === 'write') {
+        void saveJson(KEYS.game, decision.payload).then((ok) => setSaveFailed(!ok));
+      } else {
+        setSaveFailed(false);
+        void removeKey(KEYS.game);
+      }
     }, 250);
     return () => clearTimeout(timer);
   }, [game.history, game.setup]);
 
+  // The dismissal belongs to the live game too: cleared by the state on
+  // screen, a replay put it back just by walking through 'playing' states.
   useEffect(() => {
-    if (state.status === 'playing') setGameOverDismissed(false);
-  }, [state.status]);
+    if (liveState.status === 'playing') setGameOverDismissed(false);
+  }, [liveState.status]);
 
-  // Size cells so the board fits in either orientation (7 wide or 7 tall).
-  // Wide screens (tablets, phones on their side) put the map beside the board.
+  // Size cells so the board fits either way round (7 wide or 7 tall).
+  // A window wider than it is tall puts the map beside the board. On a device
+  // the app is locked to portrait (app.json), so that is the web build in a
+  // wide browser window, not a phone on its side.
   const landscape = width > height * 1.15;
   // On a short wide screen the board column scrolls so the hint stays reachable.
   const Left = landscape ? ScrollView : View;
@@ -236,6 +285,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const bot = game.setup.bot;
   const puzzle = game.setup.mode === 'puzzle' && game.setup.puzzleId ? puzzleById(game.setup.puzzleId) : undefined;
   const puzzleIndex = puzzle ? PUZZLES.findIndex((p) => p.id === puzzle.id) : -1;
+  const nextPuzzle = puzzleIndex >= 0 ? PUZZLES[puzzleIndex + 1] : undefined;
   const survive = puzzle?.goal === 'survive';
   const puzzleSolved =
     !!puzzle &&
@@ -254,12 +304,14 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     setShowHint(false);
   }, [game.setup.puzzleId, game.history.length === 1]);
   useEffect(() => {
-    if (!bot || humanTurn || spinning || state.status !== 'playing') return;
+    // Only ever the live game: the action is applied to the live game, so
+    // choosing it from the state being replayed would play moves into it.
+    if (!bot || !botShouldMove({ replaying, humanTurn: game.humanTurn, spinning, status: liveState.status })) return;
     const timer = setTimeout(() => {
-      const action = chooseAction(state, bot.level);
+      const action = chooseAction(liveState, bot.level);
       if (!action) return;
       if (action.type === 'rotate') {
-        game.focusBoard({ timeline: action.timeline, turn: state.timelines[action.timeline].boards.length - 1 + state.timelines[action.timeline].startTurn });
+        game.focusBoard(latestRef(getTimeline(liveState, action.timeline)));
         animateSpin(action.spin, () => game.play(action));
       } else if (action.type === 'flip') {
         animateSpin('flip', () => game.play(action));
@@ -269,9 +321,10 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
     }, 600);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, bot, humanTurn, spinning]);
+  }, [liveState, bot, game.humanTurn, replaying, spinning]);
 
-  const board = getBoard(state, focus) ?? state.timelines[0].boards[0];
+  // Every game has its root timeline, and a timeline is never without a board.
+  const board = getBoard(state, focus) ?? getTimeline(state, 0).boards[0]!;
   const timeline = getTimeline(state, focus.timeline);
   const focusIsPending = isPending(state, focus);
   const pending = pendingTimelines(state);
@@ -280,7 +333,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
   const totalWaiting = mandatory.length;
   const mover = state.toMove;
 
-  const origin = selection.kind === 'none' ? null : latestRef(getTimeline(state, selection.from.timeline));
+  const origin = travelOrigin(state, selection, replaying);
   const landingHere = selection.kind === 'target' && selection.to.timeline === focus.timeline && selection.to.turn === focus.turn;
   const selectedDisc =
     selection.kind !== 'none' && selection.from.timeline === focus.timeline && focusIsPending
@@ -408,8 +461,13 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         />
       ) : null}
       <View style={[styles.hintRow, replaying && { display: 'none' }]}>
-        <Text style={[styles.hint, game.error ? { color: colors.danger } : null]} numberOfLines={3}>
-          {game.error ?? hint}
+        <Text style={[styles.hint, game.error || notice || pastReload ? { color: colors.danger } : null]} numberOfLines={3}>
+          {game.error ??
+            (saveFailed
+              ? 'This game is too big to save; it will be lost when the app closes.'
+              : pastReload
+                ? `This game is past the ${MAX_SAVED_ACTIONS} moves the app can reload; reopening it comes back at move ${MAX_SAVED_ACTIONS}.`
+                : notice ?? hint)}
         </Text>
         {puzzle && selection.kind === 'none' && humanTurn && state.status === 'playing' ? (
           <Button label={showHint ? 'Brief' : 'Hint'} small onPress={() => setShowHint((h) => !h)} />
@@ -460,7 +518,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         </Text>
       </View>
       <View style={styles.map}>
-        <MultiverseMap state={state} focus={focus} targets={targets} origin={origin} onPressBoard={game.focusBoard} />
+        <MultiverseMap state={state} focus={focus} targets={targets} origin={origin} onPressBoard={game.focusBoard} reduceMotion={reduceMotion} />
       </View>
 
       </View>
@@ -472,7 +530,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         gameInProgress={game.canUndo && state.status === 'playing'}
         onNewGame={() => setNewGameOpen(true)}
         items={[
-          ...(game.history.length > 1 ? [{ label: 'Replay this game', onPress: () => setReplayIndex(0) }] : []),
+          ...(game.history.length > 1 ? [{ label: 'Replay this game', onPress: openReplay }] : []),
           { label: 'Play by message', onPress: () => setShareOpen(true) },
           { label: 'Puzzles', onPress: () => setPuzzlesOpen(true) },
           { label: 'How to play', onPress: () => setRulesOpen(true) },
@@ -503,26 +561,47 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       />
       <ShareModal
         visible={shareOpen}
-        code={shareCode}
+        code={share.code}
+        problem={share.problem}
         onClose={() => setShareOpen(false)}
-        link={shareCode ? webLinkFor(shareCode) : null}
+        link={share.code ? webLinkFor(share.code) : null}
         onLoad={(code) => {
           const problem = loadCode(code);
           if (!problem) setShareOpen(false);
           return problem;
         }}
       />
+      <ConfirmModal
+        visible={linkedCode !== null}
+        title="Load the shared game?"
+        body="A link has a game in it. Loading it replaces the game in progress, and every timeline of it is lost."
+        confirmLabel="Load the shared game"
+        cancelLabel="Keep playing"
+        onConfirm={() => {
+          const code = linkedCode;
+          setLinkedCode(null);
+          if (code) acceptLinkedCode(code);
+        }}
+        onCancel={() => {
+          setLinkedCode(null);
+          clearCodeFromUrl();
+        }}
+      />
       <SettingsModal visible={settingsOpen} onClose={() => setSettingsOpen(false)}>
         <Section title="Variants (apply to new games)">
-          <Row label="Pop out" hint="Pull one of your own discs out of the bottom row as a move.">
-            <Switch value={!!settings.variants.popOut} onValueChange={(v) => setVariant('popOut', v)} />
-          </Row>
-          <Row label="Flip" hint="Turn the board upside down as a move, gravity included.">
-            <Switch value={!!settings.variants.flip} onValueChange={(v) => setVariant('flip', v)} />
-          </Row>
-          <Row label="Strict present (5D rules)" hint="Only boards at the present must be played; boards ahead are optional and you end your turn yourself.">
-            <Switch value={!!settings.variants.strictPresent} onValueChange={(v) => setVariant('strictPresent', v)} />
-          </Row>
+          <SwitchRow
+            label="Pop out"
+            hint="Pull one of your own discs out of the bottom row as a move."
+            value={!!settings.variants.popOut}
+            onValueChange={(v) => setVariant('popOut', v)}
+          />
+          <SwitchRow label="Flip" hint="Turn the board upside down as a move, gravity included." value={!!settings.variants.flip} onValueChange={(v) => setVariant('flip', v)} />
+          <SwitchRow
+            label="Strict present (5D rules)"
+            hint="Only boards at the present must be played; boards ahead are optional and you end your turn yourself."
+            value={!!settings.variants.strictPresent}
+            onValueChange={(v) => setVariant('strictPresent', v)}
+          />
         </Section>
       </SettingsModal>
       <RulesModal visible={rulesOpen} onClose={() => setRulesOpen(false)} />
@@ -539,10 +618,10 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         solved={puzzleSolved}
         survived={survive}
         title={puzzle?.title ?? ''}
-        hasNext={puzzleIndex >= 0 && puzzleIndex < PUZZLES.length - 1}
+        hasNext={!!nextPuzzle}
         onNext={() => {
           setResultDismissed(true);
-          game.startPuzzle(PUZZLES[puzzleIndex + 1]);
+          if (nextPuzzle) game.startPuzzle(nextPuzzle);
         }}
         onRetry={() => {
           setResultDismissed(true);
@@ -555,7 +634,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
       />
       <GameOverModal
         state={state}
-        visible={!puzzle && state.status !== 'playing' && !gameOverDismissed}
+        visible={gameOverVisible(liveState, !!puzzle, replaying, gameOverDismissed)}
         onRestart={() => {
           setGameOverDismissed(true);
           setNewGameOpen(true);
@@ -563,7 +642,7 @@ export function GameScreen({ initialHistory, initialSetup }: Props) {
         onDismiss={() => setGameOverDismissed(true)}
         onReplay={() => {
           setGameOverDismissed(true);
-          setReplayIndex(0);
+          openReplay();
         }}
       />
     </SafeAreaView>
@@ -584,8 +663,9 @@ const makeStyles = (colors: Theme) =>
     paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
   },
-  title: { color: colors.text, fontSize: 18, fontWeight: '900', letterSpacing: 0.3 },
-  subtitle: { color: colors.textMuted, fontSize: 11 },
+  // title and subtitle: see headerTextStyles in theme.ts, which is where a
+  // test can check they are readable on the background they sit on.
+  ...headerTextStyles(colors),
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',

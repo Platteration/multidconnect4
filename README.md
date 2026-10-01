@@ -58,7 +58,9 @@ defend, and rearrange the present by collapsing a column.
   only boards at the present must be played, boards ahead of it are
   optional, and you end your turn yourself. All off by default.
 - **Themes and looks.** System, dark or light theme; five board skins; four
-  piece sets that also rename the sides; colour-blind markings on discs.
+  piece sets that also rename the sides; colour-blind markings on discs; a
+  reduce-motion setting that follows the device or overrides it. Settings can
+  be reset to their defaults without touching games, record or progress.
 - **Feel.** Haptics and short synthesized sounds, both switchable. A falling
   animation for discs and a turning animation for spins.
 - **Your record.** Games played, wins against each bot, time travels made,
@@ -67,9 +69,12 @@ defend, and rearrange the present by collapsing a column.
   real tiny multiverse, and offers the puzzles.
 - **Links.** A game code also loads from a link: `?code=` on the web build
   and the app's own scheme on a device.
-- **Fits the screen.** Portrait stacks the board over the map; wide screens
-  put them side by side. The map draws a line from each branch to the board
-  it split off, and a time travel flies a token across it.
+- **Fits the screen.** On a device the app is locked to portrait
+  (`orientation` in `app.json`), so the board stacks over the map; the
+  side-by-side layout the screen keeps for a window wider than it is tall (by
+  more than 15%, in `GameScreen`) is what the web build shows in a wide
+  browser window. The map draws a line from each branch to the board it
+  split off, and a time travel flies a token across it.
 - **Saved automatically.** The game in progress, settings, record, and
   puzzle progress survive closing the app.
 
@@ -86,14 +91,6 @@ go live: implement `purchase` and `restore` in that file against your store
 SDK, persist the result, and set the flag to true. The Settings sheet and the
 Extras sheet already respect the entitlement.
 
-## Building and shipping
-
-`.github/workflows/ci.yml` runs the typecheck, the tests, and a web export
-on every push. `eas.json` has development, preview, and production profiles
-for [EAS Build](https://docs.expo.dev/build/introduction/). The icons in
-`assets/` are generated, so replace them with real artwork before a store
-release.
-
 ## Running it
 
 ```sh
@@ -104,16 +101,28 @@ npm run android    # Android emulator or device
 npm run web        # in a browser
 ```
 
-Quality checks:
-
-```sh
-npm test           # engine unit tests (jest-expo)
-npm run typecheck  # tsc --noEmit
-```
+### Native builds
 
 To produce store builds use [EAS Build](https://docs.expo.dev/build/introduction/)
 (`npx eas build --platform ios|android`). The bundle identifiers are set in
-`app.json`.
+`app.json`. `eas.json` has development, preview, and production profiles
+for EAS Build. The icons in `assets/` are placeholders (nothing in the
+repository generates them), so replace them with real artwork before a store
+release.
+
+## Development
+
+```sh
+npm test                  # engine unit tests (jest-expo)
+npm run lint              # eslint .
+npm run typecheck         # tsc --noEmit
+npm run test:conventions  # the shared repository conventions (CONVENTIONS.md)
+npm run check             # all of the above: the gate before a push
+```
+
+`.github/workflows/ci.yml` runs the lint, the typecheck, the tests, the
+conventions test and an Android and web export on every push; a separate job
+runs `npm audit --omit=dev --audit-level=high` against the lockfile.
 
 ## Project layout
 
@@ -123,20 +132,33 @@ src/engine/types.ts        players, board references, turn parity
 src/engine/board.ts        one Connect Four board: gravity, removal, spinning, lines
 src/engine/multiverse.ts   timelines, pending boards, time travel, rules, win/draw
 src/engine/bot.ts          the three-level computer opponent
-src/engine/__tests__/      unit tests for the rules, bots, puzzles, and game codes
+src/engine/__tests__/      unit tests for the rules, bots, puzzles, game codes
+                           and the links a code arrives on
 src/puzzles/index.ts       the puzzle set (each verified by a test)
-src/app/settings.tsx       persisted settings (theme, skin, sound, variants)
+src/app/settings.tsx       persisted settings (theme, motion, skin, sound, variants)
+src/motion.ts              the reduce-motion hook (device preference or override)
 src/app/theme.tsx          resolves settings into the palette screens draw with
-src/app/persist.ts         AsyncStorage helpers; app/progress.tsx for puzzle progress
+src/app/persist.ts         every storage key, the key migration, AsyncStorage helpers
+src/app/validate.ts        what a stored record may contain; every read goes through it
 src/app/share.ts           game codes for play by message (app/base64.ts)
+src/app/savedGame.ts       the game in storage: actions out, a replay back in
+src/app/links.ts           deep links carrying a game code, and clearing one
+src/app/__tests__/         the app config, the settings contract, the validator
+                           and the game read back out of storage
 src/app/purchases.ts       the store seam; app/entitlements.tsx gates premium looks
 src/app/feedback.ts        haptics and sounds (app/sound.ts)
 src/ui/useGame.ts          game controller hook: history/undo, selection, bot turns
+src/ui/guards.ts           the screen's pure guards: the bot's turn, the travel
+                           origin, link confirmation, cell labels
 src/ui/GameScreen.tsx      screen layout, status text, bot loop, replay
 src/ui/DiscBoard.tsx       the big tappable board with the falling-disc animation
 src/ui/MiniBoard.tsx       board thumbnails for the map
 src/ui/MultiverseMap.tsx   the timeline map (rows = timelines, columns = turns)
 src/ui/*Modal.tsx          menu, rules, settings, new game, puzzles, share, extras
+src/ui/ErrorBoundary.tsx   the fallback for a render that throws; its button
+                           clears the saved game
+src/ui/__tests__/          the map's windowing, the board, the share sheet, the
+                           error boundary and the guards
 ```
 
 The engine is pure TypeScript with no React dependency, so the rules can be
