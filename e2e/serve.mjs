@@ -1,7 +1,8 @@
 // The test host for the built site: serves it under a sub-path, the way a GitHub Pages project
 // site is served, and answers the way Netlify reads the site's own _headers and _redirects, so
-// the browser suite runs the game under the headers as that file writes them. Test tooling only;
-// it is never published, and it listens on loopback alone.
+// the browser suite runs the game under the headers as that file writes them; or the way GitHub
+// Pages does, which reads neither. Test tooling only; it is never published, and it listens on
+// loopback alone.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -77,19 +78,23 @@ export function headersFor(rules, p) {
 
 /**
  * Serves `root` at http://127.0.0.1:<port><base>/. Every request is recorded; one outside the
- * base lands in `outside`, and a path two header rules both set a header for in `twice`. With
- * `headers: false` it sends none of _headers, as GitHub Pages sends none.
+ * base lands in `outside`, and a path two header rules both set a header for in `twice`. `host`
+ * is whose reading of the folder this is: 'netlify' sends what _headers gives each path and
+ * answers _redirects' 404 rules; 'github-pages' reads neither file, sends none of those headers
+ * and serves every file the folder holds, either of those included, as GitHub Pages does.
  */
-export function serveSite({ root, base, headers: sendHeaders = true }) {
+export function serveSite({ root, base, host = 'netlify' }) {
+  if (host !== 'netlify' && host !== 'github-pages') throw new Error(`serveSite: no model of ${host}`);
   const site = path.resolve(root);
-  const headerRules = parseHeaders(fs.readFileSync(path.join(site, '_headers'), 'utf8'));
-  const redirectRules = parseRedirects(fs.readFileSync(path.join(site, '_redirects'), 'utf8'));
+  const netlify = host === 'netlify';
+  const headerRules = netlify ? parseHeaders(fs.readFileSync(path.join(site, '_headers'), 'utf8')) : [];
+  const redirectRules = netlify ? parseRedirects(fs.readFileSync(path.join(site, '_redirects'), 'utf8')) : [];
   const outside = [];
   const twice = [];
   const requests = [];
 
   const send = (res, sitePath, status, file) => {
-    const { headers, twice: doubled } = headersFor(sendHeaders ? headerRules : [], sitePath);
+    const { headers, twice: doubled } = headersFor(headerRules, sitePath);
     if (doubled.length) twice.push(`${sitePath}: ${doubled.join(', ')}`);
     for (const [name, value] of headers) res.setHeader(name, value);
     res.setHeader('Content-Type', TYPES[path.extname(file)] ?? 'application/octet-stream');

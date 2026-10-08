@@ -52,14 +52,21 @@ const fromHeadersFile = (p: string): Record<string, string> => {
   }
   return out;
 };
-const fromHtaccess = (p: string): Record<string, string> => {
+/** Apache's headers for a path, and for a file that is or is not there (`-f`). */
+const fromHtaccess = (p: string, exists = true): Record<string, string> => {
   const out: Record<string, string> = {};
-  // Outside the <If>/<Else> pair, every `Header always set` applies to every response.
+  // Outside the <If>/<Else> pair, every `Header always set` applies to every response. Each line is
+  // read whole: a condition after the value (`env=HTTPS`, `expr=…`) is one Apache obeys, and a
+  // reader that stopped at the value said the header was sent where it never was.
   const [plain, conditional] = HTACCESS.split(/^\s*<If /m);
-  for (const m of (plain ?? '').matchAll(/^\s*Header always set (\S+) "([^"]*)"/gm)) out[m[1]!] = m[2]!;
-  const cond = /^"%\{REQUEST_URI\} =~ m#(.+)#">\s*\n\s*Header always set Cache-Control "([^"]*)"\s*\n\s*<\/If>\s*\n\s*<Else>\s*\n\s*Header always set Cache-Control "([^"]*)"/.exec(conditional ?? '');
+  for (const line of (plain ?? '').split('\n').filter((l) => /^\s*Header\b/.test(l))) {
+    const m = /^\s*Header always set (\S+) "([^"]*)"$/.exec(line);
+    if (!m) throw new Error(`.htaccess: a Header line this test cannot read whole: ${line.trim()}`);
+    out[m[1]!] = m[2]!;
+  }
+  const cond = /^"(-f %\{REQUEST_FILENAME\} && )?%\{REQUEST_URI\} =~ m#(.+)#">\s*\n\s*Header always set Cache-Control "([^"]*)"\s*\n\s*<\/If>\s*\n\s*<Else>\s*\n\s*Header always set Cache-Control "([^"]*)"\s*\n\s*<\/Else>/.exec(conditional ?? '');
   if (!cond) throw new Error('.htaccess: the Cache-Control <If>/<Else> pair is not where this test reads it');
-  out['Cache-Control'] = new RegExp(cond[1]!).test(p) ? cond[2]! : cond[3]!;
+  out['Cache-Control'] = (!cond[1] || exists) && new RegExp(cond[2]!).test(p) ? cond[3]! : cond[4]!;
   return out;
 };
 const fromNginx = (p: string): Record<string, string> => {
@@ -100,6 +107,13 @@ const SITE_PATHS: Record<string, 'immutable' | 'revalidate'> = {
 };
 const CACHE = { immutable: 'public, max-age=31536000, immutable', revalidate: 'no-cache' };
 
+/** Every file in public/, as a path relative to it: what the exporter copies into the site. */
+const publicFiles = (): string[] => {
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  return walk('public').map((f) => path.relative('public', f).split(path.sep).join('/'));
+};
+
 describe('the response headers', () => {
   it('are the same in _headers, .htaccess and nginx.conf, on every path of the site', () => {
     expect(fromHeadersFile('/')['Content-Security-Policy']).toBeDefined();
@@ -129,14 +143,25 @@ describe('the response headers', () => {
     for (const [p, kind] of Object.entries(SITE_PATHS)) expect([p, fromHeadersFile(p)['Cache-Control']]).toEqual([p, CACHE[kind]]);
   });
 
+  it('revalidate the not-found page answered at a hashed address, rather than keep it a year', () => {
+    // A copy to Apache or nginx is not atomic: a page that lands before the bundle it names gets
+    // the not-found page at the bundle's address, and kept a year, that visitor would read "could
+    // not start" for a year whatever they reloaded. (Netlify and Cloudflare Pages deploy
+    // atomically, and match _headers by the address alone: see the comment in that file.)
+    const missing = '/_expo/static/js/web/index-ffffffffffffffffffffffffffffffff.js';
+    expect(fromHtaccess(missing, true)['Cache-Control']).toBe(CACHE.immutable);
+    expect(fromHtaccess(missing, false)['Cache-Control']).toBe(CACHE.revalidate);
+    // nginx answers a 404 through error_page with /404.html, and its map reads $uri, which
+    // error_page rewrites to that page ($request_uri would keep the address asked for).
+    expect(NGINX).toMatch(/^map \$uri \$\w+ \{$/m);
+    expect(NGINX).toMatch(/^\s*error_page 404 \/404\.html;$/m);
+    expect(fromNginx('/404.html')['Cache-Control']).toBe(CACHE.revalidate);
+  });
+
   it('give every file public/ publishes a cache rule of its own', () => {
     // A file added to public/ without one is served with whatever the host defaults to.
     const configs = new Set(['_headers', '_redirects', '.htaccess']);
-    const walk = (dir: string): string[] =>
-      fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
-    const published = walk('public')
-      .map((f) => path.relative('public', f).split(path.sep).join('/'))
-      .filter((f) => !configs.has(f));
+    const published = publicFiles().filter((f) => !configs.has(f));
     expect(published.sort()).toEqual(['.well-known/security.txt', '404.html', 'guard.js', 'index.html', 'robots.txt', 'site.css']);
     for (const f of published) expect([f, fromHeadersFile(`/${f}`)['Cache-Control']]).toEqual([f, CACHE.revalidate]);
   });
@@ -153,6 +178,14 @@ describe('the response headers', () => {
     }
     expect(locations.length).toBeGreaterThanOrEqual(5);
     for (const body of locations) expect(body).not.toMatch(/add_header/);
+  });
+
+  it('turn HTTP/2 on in the form every nginx reads', () => {
+    // The `http2 on;` directive appeared in nginx 1.25.1: Ubuntu 24.04 packages 1.24 and Debian 12
+    // 1.22, where `nginx -t` stops at it and the site does not start. The listen parameter is read
+    // by every version (1.25.1 and newer warn that it is deprecated).
+    expect(NGINX).not.toMatch(/^\s*http2\b/m);
+    expect([...NGINX.matchAll(/^\s*listen (.+);$/gm)].map((m) => m[1])).toEqual(['80', '[::]:80', '443 ssl http2', '[::]:443 ssl http2']);
   });
 
   it('deny every feature but the sounds and the clipboard', () => {
@@ -219,24 +252,66 @@ describe('the Content-Security-Policy', () => {
   });
 });
 
-describe("what the hosts refuse: the repository's own files and the hosts' configurations", () => {
-  const REFUSED = ['/README.md', '/.git/config', '/.git/HEAD', '/deploy/nginx.conf', '/_headers', '/_redirects', '/.htaccess', '/metadata.json'];
+describe("what the hosts refuse: the files in the built folder that are not part of the site", () => {
+  /** In a build for any host: the hosts' configurations, .nojekyll and the exporter's manifest. */
+  const REFUSED = ['/_headers', '/_redirects', '/.htaccess', '/.nojekyll', '/metadata.json'];
+  /**
+   * A checkout's own files, which only nginx refuses: its rules are the server's and hold
+   * whatever folder it serves. Apache and Netlify read theirs from the folder they publish, so
+   * pointed at a checkout they read none, and the built folder holds none of these to refuse.
+   */
+  const CHECKOUT = ['/README.md', '/.git/config', '/.git/HEAD', '/deploy/nginx.conf'];
   const DOTFILES = ['/.env', '/.gitignore', '/assets/.DS_Store'];
+  /**
+   * Every path a published folder can hold: public/ as the exporter copies it, what the exporter
+   * writes beside it (the page, the favicon, the bundle, the sounds, and metadata.json, which only
+   * build-web.mjs removes) and the .nojekyll build-web.mjs writes.
+   */
+  const PUBLISHABLE = [
+    ...publicFiles().map((f) => `/${f}`),
+    '/index.html',
+    '/favicon.ico',
+    '/metadata.json',
+    '/.nojekyll',
+    '/_expo/static/js/web/index-0123456789abcdef0123456789abcdef.js',
+    '/assets/assets/sounds/tap.885ca5ad315cfc1729c3b2b1d8c41e98.wav',
+  ];
+  const redirects = () =>
+    read('public/_redirects')
+      .split('\n')
+      .filter((l) => l.trim() && !l.trimStart().startsWith('#'))
+      .map((l) => l.trim().split(/\s+/));
+  /** .htaccess's refusals, `^(a|b)$` taken apart so that each name has to answer for itself. */
+  const apacheRefusals = () =>
+    [...HTACCESS.matchAll(/^\s*RewriteRule (\S+) - \[R=404,L\]$/gm)]
+      .map((m) => m[1]!)
+      // `^` is the folder rule, whose conditions do the matching.
+      .filter((re) => re !== '^')
+      .flatMap((re) => {
+        const names = /^\^\(([^()]*)\)\$$/.exec(re);
+        return names ? names[1]!.split('|').map((name) => `^(?:${name})$`) : [re];
+      });
 
   const nginxRefuses = (p: string) =>
     [...NGINX.matchAll(/^\s*location ~ (\S+) \{ return 404; \}/gm)].some((m) => new RegExp(m[1]!).test(p));
   // In .htaccess a RewriteRule sees the path without its leading slash.
-  const apacheRefuses = (p: string) =>
-    [...HTACCESS.matchAll(/^\s*RewriteRule (\S+) - \[R=404,L\]$/gm)].some((m) => m[1] !== '^' && new RegExp(m[1]!).test(p.slice(1)));
-  const netlifyRefuses = (p: string) =>
-    read('public/_redirects')
-      .split('\n')
-      .filter((l) => l.trim() && !l.trimStart().startsWith('#'))
-      .map((l) => l.trim().split(/\s+/))
-      .some(([from, to, status]) => to === '/404.html' && status === '404!' && netlifyMatch(from!, p));
+  const apacheRefuses = (p: string) => apacheRefusals().some((re) => new RegExp(re).test(p.slice(1)));
+  const netlifyRefuses = (p: string) => redirects().some(([from, to, status]) => to === '/404.html' && status === '404!' && netlifyMatch(from!, p));
 
   it.each(REFUSED)('%s answers 404 from all three hosts', (p) => {
     expect([nginxRefuses(p), apacheRefuses(p), netlifyRefuses(p)]).toEqual([true, true, true]);
+  });
+
+  it.each(CHECKOUT)('%s, a file of the checkout, answers 404 from nginx', (p) => {
+    expect(nginxRefuses(p)).toBe(true);
+  });
+
+  it('refuse, in .htaccess and _redirects, only paths the published folder can hold', () => {
+    // Both files are read only from the folder they are published in, so a rule for a path that
+    // folder cannot hold never fires: it reads as protection and protects nothing.
+    expect(PUBLISHABLE).toEqual(expect.arrayContaining(['/_headers', '/_redirects', '/.htaccess', '/.well-known/security.txt']));
+    for (const re of apacheRefusals()) expect([re, PUBLISHABLE.some((p) => new RegExp(re).test(p.slice(1)))]).toEqual([re, true]);
+    for (const [from] of redirects()) expect([from, PUBLISHABLE.some((p) => netlifyMatch(from!, p))]).toEqual([from, true]);
   });
 
   it.each(DOTFILES)('%s, a dotfile, answers 404 from nginx and Apache', (p) => {
@@ -256,6 +331,12 @@ describe("what the hosts refuse: the repository's own files and the hosts' confi
     expect(HTACCESS).toMatch(/^ErrorDocument 404 \/404\.html$/m);
     expect(HTACCESS).toMatch(/^ErrorDocument 403 \/404\.html$/m);
     expect(HTACCESS).toMatch(/^Options -Indexes$/m);
+    // Over https, whoever ends TLS: Apache itself, or a proxy that says so in X-Forwarded-Proto.
+    expect(HTACCESS).toMatch(
+      /^\s*RewriteCond %\{HTTPS\} !=on\n\s*RewriteCond %\{HTTP:X-Forwarded-Proto\} !=https\n\s*RewriteRule \^ https:\/\/%\{HTTP_HOST\}%\{REQUEST_URI\} \[R=301,L\]$/m,
+    );
+    // A folder with no page of its own is a 404, not a 403 that hints at a listing.
+    expect(HTACCESS).toMatch(/^\s*RewriteCond %\{REQUEST_FILENAME\} -d\n\s*RewriteCond %\{REQUEST_FILENAME\}\/index\.html !-f\n\s*RewriteRule \^ - \[R=404,L\]$/m);
   });
 });
 
@@ -264,7 +345,10 @@ describe('the files a site carries', () => {
     const text = read('public/.well-known/security.txt');
     const field = (name: string) => [...text.matchAll(new RegExp(`^${name}: (.+)$`, 'gm'))].map((m) => m[1]!);
     expect(field('Contact')).toEqual(['https://github.com/Platteration/multidconnect4/issues']);
-    expect(field('Policy')).toEqual(['https://github.com/Platteration/multidconnect4/blob/HEAD/SECURITY.md']);
+    // The branch by name, not blob/HEAD: HEAD is the repository's default branch, which is not
+    // main and holds no SECURITY.md, so that link answered 404 to the one reader who needs it.
+    expect(field('Policy')).toEqual(['https://github.com/Platteration/multidconnect4/blob/main/SECURITY.md']);
+    expect(fs.existsSync(path.join(root, 'SECURITY.md'))).toBe(true);
     expect(field('Preferred-Languages')).toEqual(['en']);
     const [expires] = field('Expires');
     const left = Date.parse(expires!) - Date.now();
@@ -376,7 +460,10 @@ describe('the build', () => {
     ['--out', 'public'],
     ['--base', '/../x'],
     ['--base', 'multidconnect4'],
-  ])('refuses %s %s before the exporter runs', (flag, value) => {
+    ['--host', 'pages'],
+    ['--host', 'constructor'],
+    ['--host', ''],
+  ])('refuses %s %j before the exporter runs', (flag, value) => {
     const box = sandbox();
     const result = box.run(flag, value);
     expect(result.status).toBe(1);
@@ -394,6 +481,28 @@ describe('the build', () => {
     const notFound = fs.readFileSync(path.join(out, '404.html'), 'utf8');
     expect(notFound.match(/(?:href|src)="[^"]*"/g)).toEqual(['href="/multidconnect4/favicon.ico"', 'href="/multidconnect4/site.css"', 'href="/multidconnect4/"']);
     expect(fs.readFileSync(path.join(out, '.htaccess'), 'utf8')).toMatch(/^ErrorDocument 404 \/multidconnect4\/404\.html\nErrorDocument 403 \/multidconnect4\/404\.html$/m);
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  });
+
+  it.each([
+    [null, ['.htaccess', '.nojekyll', '_headers', '_redirects']],
+    ['github-pages', ['.nojekyll']],
+    ['netlify', ['_headers', '_redirects']],
+    ['cloudflare', ['_headers', '_redirects']],
+    ['apache', ['.htaccess']],
+    ['nginx', []],
+  ])('for --host %s, the site holds %j of the configurations and .nojekyll', (host, kept) => {
+    // A host serves as a plain file whatever it does not read: GitHub Pages all three
+    // configurations, Cloudflare Pages .htaccess. And GitHub Pages runs a site deployed from a
+    // branch through Jekyll, which drops every folder whose name starts with an underscore,
+    // _expo/ (the whole game) among them, unless the site holds .nojekyll; a build for no host
+    // in particular may be going there too.
+    const box = sandbox();
+    expect(box.run(...(host ? ['--host', host] : []))).toEqual({ status: 0, stderr: '' });
+    const out = path.join(box.repo, 'dist-web');
+    expect(['.htaccess', '.nojekyll', '_headers', '_redirects'].filter((f) => fs.existsSync(path.join(out, f)))).toEqual(kept);
+    if (kept.includes('.nojekyll')) expect(fs.readFileSync(path.join(out, '.nojekyll'), 'utf8')).toBe('');
+    for (const f of ['index.html', '404.html', 'guard.js', 'site.css', 'robots.txt', '.well-known/security.txt']) expect([f, fs.existsSync(path.join(out, f))]).toEqual([f, true]);
     fs.rmSync(box.dir, { recursive: true, force: true });
   });
 

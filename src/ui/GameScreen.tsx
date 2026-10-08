@@ -29,7 +29,7 @@ import { KEYS, removeKey, saveJson } from '../app/persist';
 import { MAX_SAVED_ACTIONS, saveDecision } from '../app/savedGame';
 import { useSettings } from '../app/settings';
 import { useReduceMotion } from '../motion';
-import { clearCodeFromUrl, codeFromUrl, takeLaunchUrl, webLinkFor } from '../app/links';
+import { clearCodeFromUrl, codeFromUrl, LaunchLink, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { useProgress } from '../app/progress';
@@ -61,9 +61,11 @@ interface Props {
   initialSetup?: GameSetup;
   /** What was lost on the way in, when a stored game came back short or not at all. */
   initialNotice?: string | null;
+  /** The link the app was launched with, which App answers once per launch. */
+  launch: LaunchLink;
 }
 
-export function GameScreen({ initialHistory, initialSetup, initialNotice }: Props) {
+export function GameScreen({ initialHistory, initialSetup, initialNotice, launch }: Props) {
   const colors = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { settings, setVariant, update: updateSettings } = useSettings();
@@ -133,11 +135,12 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
   };
   const offerCodeRef = useRef(offerCode);
   offerCodeRef.current = offerCode;
-  // The launch link is asked for once per run (takeLaunchUrl): this screen is
-  // mounted again by the error boundary's reset, and the platform reports the
+  // The launch link is asked for once per launch (App holds `launch`): this
+  // screen is mounted again by the error boundary, and the platform reports the
   // same launch link to every mount.
   useEffect(() => {
-    takeLaunchUrl(() => Linking.getInitialURL())
+    launch
+      .take(() => Linking.getInitialURL())
       .then((url) => {
         const code = codeFromUrl(url);
         if (code) offerCodeRef.current(code);
@@ -148,7 +151,7 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice }: Prop
       if (code) offerCodeRef.current(code);
     });
     return () => sub.remove();
-  }, []);
+  }, [launch]);
 
   // A tiny multiverse for the welcome pages: four drops, then a travel back to
   // turn 2. Timeline 0 ends at turn 5, and the travel opens timeline 1 with one board.

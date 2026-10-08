@@ -36,7 +36,11 @@
 # Cache lifetimes. The bundle and the sounds carry a hash of their contents in their names, so
 # they can be kept a year; everything else keeps its name from one deploy to the next and is
 # revalidated on every load. No path matches two of these rules: both hosts join a header that
-# two matching rules set into one comma-separated value.
+# two matching rules set into one comma-separated value. A rule is matched by the address asked
+# for, not by whether a file answered it, so a host that applies it to a not-found answer would
+# keep a 404 at a hashed address a year. On Netlify and Cloudflare Pages a deploy is atomic, so
+# every hashed address a page names is there; Apache keeps the year to a file that exists, and
+# nginx answers a 404 with 404.html's own headers.
 /_expo/static/*
   Cache-Control: public, max-age=31536000, immutable
 

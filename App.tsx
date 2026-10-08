@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { EntitlementsProvider } from './src/app/entitlements';
+import { launchLink, LaunchLink } from './src/app/links';
 import { KEYS, loadJson, removeKey } from './src/app/persist';
 import { ProgressProvider } from './src/app/progress';
 import { StatsProvider } from './src/app/stats';
@@ -16,7 +17,7 @@ import { GameScreen } from './src/ui/GameScreen';
 
 type Saved = { history: GameState[]; setup: GameSetup; truncated: boolean };
 
-function Root() {
+function Root({ launch }: { launch: LaunchLink }) {
   const { ready } = useSettings();
   const colors = useTheme();
   const [saved, setSaved] = useState<Saved | null | undefined>(undefined);
@@ -49,7 +50,7 @@ function Root() {
   return (
     <>
       <StatusBar style={colors.scheme === 'dark' ? 'light' : 'dark'} />
-      <GameScreen initialHistory={saved?.history} initialSetup={saved?.setup} initialNotice={notice} />
+      <GameScreen initialHistory={saved?.history} initialSetup={saved?.setup} initialNotice={notice} launch={launch} />
     </>
   );
 }
@@ -58,6 +59,10 @@ export default function App() {
   // Bumping the key remounts everything below it, which is how the error
   // boundary's "start a new game" gets a clean tree after clearing the save.
   const [generation, setGeneration] = useState(0);
+  // The link this launch was started with, answered once: held here, above the
+  // boundary, because the boundary draws the screen again ("Try again", and the
+  // reset) and the platform reports the same link to every screen that asks.
+  const [launch] = useState(launchLink);
   return (
     <SettingsProvider>
       <ThemeProvider>
@@ -72,7 +77,7 @@ export default function App() {
                     setGeneration((g) => g + 1);
                   }}
                 >
-                  <Root />
+                  <Root launch={launch} />
                 </ErrorBoundary>
               </SafeAreaProvider>
             </StatsProvider>

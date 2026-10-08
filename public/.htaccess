@@ -24,10 +24,13 @@ ErrorDocument 403 /404.html
   RewriteCond %{HTTPS} !=on
   RewriteCond %{HTTP:X-Forwarded-Proto} !=https
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-  # never serve a dotfile (.git above all, and this file), except /.well-known/
+  # never serve a dotfile (this file above all), except /.well-known/
   RewriteRule (^|/)\.(?!well-known/) - [R=404,L]
-  # the files in the folder that are not part of the site, and the repository's own
-  RewriteRule ^(_headers|_redirects|metadata\.json|README\.md|deploy/.*)$ - [R=404,L]
+  # the files in the built folder that are not part of the site. No rule here names a repository
+  # file: Apache reads a .htaccess from the folders it serves, so these rules exist only where the
+  # built folder is published, which holds none. Pointed at a checkout, Apache finds no .htaccess
+  # at its root and none of this applies: publish the built folder and nothing else.
+  RewriteRule ^(_headers|_redirects|metadata\.json)$ - [R=404,L]
   # a folder with no page of its own is a 404, not a 403 that hints at a listing
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteCond %{REQUEST_FILENAME}/index.html !-f
@@ -42,9 +45,15 @@ ErrorDocument 403 /404.html
   Header always set Permissions-Policy "accelerometer=(), attribution-reporting=(), autoplay=(self), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(self), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), join-ad-interest-group=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), private-aggregation=(), publickey-credentials-create=(), publickey-credentials-get=(), run-ad-auction=(), screen-wake-lock=(), serial=(), shared-storage=(), shared-storage-select-url=(), storage-access=(), usb=(), window-management=(), xr-spatial-tracking=()"
   Header always set Cross-Origin-Opener-Policy "same-origin"
   Header always set Cross-Origin-Resource-Policy "same-origin"
-  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+  # On every response, as _headers and nginx send it: a browser ignores it over plain HTTP, and
+  # held to env=HTTPS it never left a server behind a proxy that ends TLS for it, which is the
+  # case the redirect above reads X-Forwarded-Proto for.
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
   # The bundle and the sounds carry a hash of their contents in their names; nothing else does.
-  <If "%{REQUEST_URI} =~ m#/(_expo/static|assets)/#">
+  # Only a file that is there is kept a year: the not-found page answered at one of those
+  # addresses (to a page that names a bundle a copy has not finished uploading) is revalidated,
+  # or the visitor would keep the 404 for a year.
+  <If "-f %{REQUEST_FILENAME} && %{REQUEST_URI} =~ m#/(_expo/static|assets)/#">
     Header always set Cache-Control "public, max-age=31536000, immutable"
   </If>
   <Else>

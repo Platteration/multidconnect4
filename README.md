@@ -120,6 +120,7 @@ headers and rules that protect them, which this repository writes for it.
 ```sh
 npm run build:web                                    # the site, in dist-web/, for a domain of its own
 node scripts/build-web.mjs --base /multidconnect4    # the same site, served under /multidconnect4/
+node scripts/build-web.mjs --host netlify            # for one host: github-pages, netlify, cloudflare, apache or nginx
 ```
 
 **Publish that folder, and only it.** `dist-web/` holds `index.html`,
@@ -127,15 +128,32 @@ node scripts/build-web.mjs --base /multidconnect4    # the same site, served und
 `.well-known/security.txt`, `_expo/` (the game) and `assets/` (the sounds),
 plus the hosts' configurations, which `npx expo export` copies from
 `public/`: `_headers` and `_redirects` for Netlify and Cloudflare Pages,
-`.htaccess` for Apache. Each host reads its own and serves none of them. For
-nginx, copy `deploy/nginx.conf` into the server's configuration and set
-`server_name`, `root` and the certificate paths. Never point a host at the
-checkout: `.git/` holds the whole history. Should that happen anyway, the
-Apache and nginx rules answer 404 for every dotfile but `/.well-known/`, and
-for `README.md`, `deploy/`, `_headers`, `_redirects` and `metadata.json`;
-`_redirects` does the same on Netlify for the files it could see. (`npm run
-build:web` leaves `metadata.json`, the exporter's manifest for EAS Update,
-out of the site; a plain `npx expo export` does not.)
+`.htaccess` for Apache. A host does not serve a file it reads, but it serves
+any other as a plain file: Netlify refuses the others with `_redirects` and
+Apache with `.htaccess`, while Cloudflare Pages serves `.htaccess` (and
+`.nojekyll`), and GitHub Pages, which reads none of them, serves all three.
+Nothing in them is secret (they are in this repository), but `--host` leaves
+out every configuration that host does not read. For nginx, which reads none
+of them either, copy `deploy/nginx.conf` into the server's configuration and
+set `server_name`, `root` and the certificate paths. A build for GitHub Pages,
+or for no host in particular, also holds an empty `.nojekyll`: GitHub Pages
+runs a site deployed from a branch through Jekyll, which leaves out every
+folder whose name starts with an underscore, `_expo/` (the whole game)
+among them. (`npm run build:web` leaves `metadata.json`, the exporter's
+manifest for EAS Update, out of the site; a plain `npx expo export` does not.)
+
+Never point a host at the checkout: `.git/` holds the whole history. Apache
+reads `.htaccess`, and Netlify `_redirects`, only from the folder they
+publish, and a checkout has neither at its root, so pointed at one they
+serve all of it, `.git/` included. Only nginx's rules are the server's own and
+still hold there: every dotfile but `/.well-known/` (so all of `.git/`),
+`README.md` and `deploy/` answer 404, and the rest of the checkout is served.
+
+On a host you copy files to (Apache, nginx), copy `_expo/` and `assets/`
+before `index.html`, so that no visitor is sent a page whose bundle has not
+arrived yet; Netlify and Cloudflare Pages switch a deploy over in one step.
+Apache and nginx answer the not-found page at a missing hashed address with
+`no-cache`, so a visitor who did get one is not kept on it for a year.
 
 **Response headers.** The same set is in `public/_headers`,
 `public/.htaccess` and `deploy/nginx.conf`, and
@@ -150,9 +168,11 @@ out of the site; a plain `npx expo export` does not.)
 | `Permissions-Policy` | everything off but `autoplay` and `clipboard-write` for this site | The sound effects, and Copy in Play by message. Share… uses `web-share`, which is left at its default (this site only). |
 | `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` | `same-origin` | No other window keeps a handle on this one, and no other site embeds its files. |
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Browsers remember to use HTTPS. |
-| `Cache-Control` | a year, `immutable`, for `_expo/static/` and `assets/`; `no-cache` for everything else | The game and the sounds carry a hash of their contents in their names; every other file keeps its name from one deploy to the next, so it is revalidated on every load. |
+| `Cache-Control` | a year, `immutable`, for `_expo/static/` and `assets/`; `no-cache` for everything else | The game and the sounds carry a hash of their contents in their names; every other file keeps its name from one deploy to the next, so it is revalidated on every load. Apache keeps the year to a file that exists, and nginx sends the not-found page's own `no-cache` with it. |
 
-**GitHub Pages sends none of these headers.** The built `index.html` and
+**GitHub Pages sends none of these headers.** Build for it with
+`--host github-pages`, which leaves the other hosts' configurations out and
+keeps `.nojekyll`. The built `index.html` and
 `404.html` carry the policy (less `frame-ancestors`, which a `<meta>` cannot
 set) and the referrer policy as `<meta>` tags, so script, style and network
 are held there too; `build-web.mjs` writes the page's from `public/_headers`.
@@ -181,7 +201,10 @@ and nginx configurations wire it in (and turn folder listings off).
 `build-web.mjs --base` moves its addresses under the sub-path. `guard.js`
 loads before the game: if the game's script fails to load, or throws before
 it has drawn anything, the page says so instead of staying blank, and a
-visitor with JavaScript off reads why the page is empty.
+visitor with JavaScript off reads why the page is empty. Only the site's own
+scripts count: an error from a browser extension, or from any other script
+in the page, does not, and a note shown before the game draws (a rejected
+promise names no script, so one can still show it) is taken back when it does.
 
 **Launch checklist**, with `SITE` the site's https address:
 
@@ -197,10 +220,12 @@ curl -sI https://SITE/no-such-page | head -1          # 404
 Then play a game, open every sheet, share a code and load it from its link,
 and check that the browser console shows no `Content Security Policy`
 lines. The `Expires` date in `security.txt` is 8 October 2027 and needs
-renewing before then (`website.test.ts` fails once it has passed). On GitHub
-Pages, Jekyll skips dot-folders and the Pages upload action can leave hidden
-files out, so check after a deploy that `/.well-known/security.txt` is
-served.
+renewing before then (`website.test.ts` fails once it has passed). Its
+`Policy` link names `blob/main/`, not `blob/HEAD/`: the repository's default
+branch is not `main` and holds no `SECURITY.md`. On GitHub Pages, Jekyll
+skips dot-folders unless the site holds `.nojekyll`, and the Pages upload
+action can leave hidden files out, so check after a deploy that
+`/.well-known/security.txt` is served.
 
 ## Development
 
@@ -220,7 +245,9 @@ with exactly the headers `public/_headers` writes and the 404s
 (`e2e/run.mjs`): the welcome, a drop for each side, a time travel, an undo, a
 spin, the sounds, Play by message and the link it makes, the settings, a
 reload, a game against the bot, the not-found page, the repository's own
-files, and the safety net. It fails on any policy violation, page error,
+files, the site built for GitHub Pages and served as Pages serves it (no
+headers, no `_redirects`), and the safety net, including errors from scripts
+that are not the site's. It fails on any policy violation, page error,
 console error or request outside the sub-path. Playwright is a
 devDependency; its Chromium comes from `npx playwright install chromium`.
 
@@ -248,7 +275,8 @@ src/app/validate.ts        what a stored record may contain; every read goes thr
 src/app/share.ts           game codes for play by message (app/base64.ts)
 src/app/savedGame.ts       the game in storage: actions out, a replay back in
 src/app/links.ts           deep links carrying a game code, clearing one, and
-                           the launch link, answered once per run
+                           the launch link, answered once per launch (App
+                           holds the answer, above the error boundary)
 src/app/__tests__/         the app config, the settings contract, the validator
                            and the game read back out of storage
 src/app/purchases.ts       the store seam; app/entitlements.tsx gates premium looks
@@ -272,13 +300,15 @@ public/                    the website around the game, which the web export
                            _redirects and .htaccess for the hosts
 deploy/nginx.conf          the same headers and rules for nginx
 app.config.js              the web build's sub-path, when WEB_BASE_URL asks for one
-scripts/build-web.mjs      builds the site into dist-web/ (npm run build:web)
+scripts/build-web.mjs      builds the site into dist-web/ (npm run build:web),
+                           for one host with --host
 src/app/__tests__/website.test.ts
                            the headers, the policy and the refused paths, read
                            out of every file that writes them
 e2e/serve.mjs, e2e/run.mjs the browser suite's host (Netlify's reading of
-                           _headers and _redirects, under a sub-path) and the
-                           game played under it
+                           _headers and _redirects, or GitHub Pages', which
+                           reads neither, under a sub-path) and the game
+                           played under it
 ```
 
 The engine is pure TypeScript with no React dependency, so the rules can be

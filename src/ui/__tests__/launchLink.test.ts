@@ -56,6 +56,8 @@ const play = (...cols: number[]): GameState[] => cols.map(drop).reduce((h, a) =>
 
 /** The link's game has three discs; the player's own, when there is one, has one. */
 const LINK = `multidconnect4://?code=${encodeURIComponent(encodeGame(play(3, 3, 2), { mode: 'local' }))}`;
+/** Another launch's link, whose game has five discs. */
+const OTHER_LINK = `multidconnect4://?code=${encodeURIComponent(encodeGame(play(0, 1, 2, 4, 5), { mode: 'local' }))}`;
 
 /** The discs on the big board, read off the cells' labels. */
 const discs = (tree: ReactTestRenderer): number =>
@@ -112,20 +114,44 @@ async function launch(saved: GameState[] | null) {
   });
   await settle();
   const press = (label: string) => act(async () => (button(tree, label).props.onPress as () => void)());
+  const crash = async () => {
+    mockFailure.on = true;
+    await act(async () => tree.update(React.createElement(App)));
+    expect(texts(tree)).toContain('Something went wrong');
+    mockFailure.on = false;
+  };
   return {
-    tree,
+    get tree() {
+      return tree;
+    },
     storage,
     settle,
     press,
     unmount: () => act(async () => tree.unmount()),
     /** A render below the boundary fails, the player resets, and the tree is drawn again. */
     async crashAndReset(): Promise<void> {
-      mockFailure.on = true;
-      await act(async () => tree.update(React.createElement(App)));
-      expect(texts(tree)).toContain('Something went wrong');
-      mockFailure.on = false;
+      await crash();
       await press('Start a new game');
       await press('Clear it and start over');
+      await settle();
+    },
+    /** A render below the boundary fails, and the player draws it again. */
+    async crashAndRetry(): Promise<void> {
+      await crash();
+      await press('Try again');
+      await settle();
+    },
+    /**
+     * This launch ends and another starts from `link`, in the same JavaScript
+     * runtime: on Android the runtime is the application's, and an Activity
+     * destroyed and started again from another link mounts App afresh in it.
+     */
+    async relaunch(link: string): Promise<void> {
+      await act(async () => tree.unmount());
+      jest.mocked(Linking.getInitialURL).mockResolvedValue(link);
+      await act(async () => {
+        tree = renderer.create(React.createElement(App));
+      });
       await settle();
     },
   };
@@ -174,6 +200,36 @@ describe('the link the app was launched with', () => {
     expect(texts(app.tree)).not.toContain('Load the shared game?');
     expect(discs(app.tree)).toBe(0);
     expect(await app.storage.getItem(KEYS.game)).toBeNull();
+    await app.unmount();
+  });
+
+  it('stays answered when the player draws the screen again after a crash', async () => {
+    // "Try again" draws the same tree again below the boundary, so the screen
+    // asks again; the launch's answer is kept above the boundary, in App.
+    const app = await launch(play(6));
+    await app.press('Keep playing');
+    await app.settle();
+
+    await app.crashAndRetry();
+
+    expect(texts(app.tree)).not.toContain('Something went wrong');
+    expect(texts(app.tree)).not.toContain('Load the shared game?');
+    expect(discs(app.tree)).toBe(1);
+    await app.unmount();
+  });
+
+  it('is asked for again by a new launch in the same runtime, which is offered its own link', async () => {
+    // The first launch's link is loaded (nobody had moved) and saved.
+    const app = await launch(null);
+    expect(discs(app.tree)).toBe(3);
+
+    await app.relaunch(OTHER_LINK);
+
+    // The saved game has moves now, so the new launch's link is offered, not obeyed.
+    expect(texts(app.tree)).toContain('Load the shared game?');
+    await app.press('Load the shared game');
+    await app.settle();
+    expect(discs(app.tree)).toBe(5);
     await app.unmount();
   });
 

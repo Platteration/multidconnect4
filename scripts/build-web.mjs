@@ -1,6 +1,6 @@
 // Builds the website: the folder this writes is the whole site, and the only thing to publish.
 //
-//   node scripts/build-web.mjs [--base /multidconnect4] [--out dist-web]
+//   node scripts/build-web.mjs [--base /multidconnect4] [--out dist-web] [--host <host>]
 //
 // It runs `expo export --platform web`, which copies public/ (the page template, the safety net,
 // the not-found page, robots.txt, security.txt and the three hosts' configurations) beside the
@@ -14,6 +14,13 @@
 //     serves the template too and the development server needs a WebSocket and HTML written
 //     from strings, both of which the policy refuses;
 //   - removes metadata.json, the exporter's manifest for EAS Update, which the site never loads;
+//   - with --host (github-pages, netlify, cloudflare, apache or nginx), keeps only the
+//     configuration that host reads, since a host serves whatever it does not read as a plain
+//     file: GitHub Pages reads none and serves all three, Cloudflare Pages serves .htaccess.
+//     Without it all three stay. A build for GitHub Pages, and one for no host in
+//     particular, also gets an empty .nojekyll: GitHub Pages runs a site deployed from a branch
+//     through Jekyll, which leaves out every folder whose name starts with an underscore, and
+//     _expo/ is the whole game;
 //   - refuses to finish when the page is not the one public/index.html describes (a later SDK
 //     that stopped reading the template would ship a page with no policy and no safety net).
 import { spawnSync } from 'node:child_process';
@@ -33,6 +40,29 @@ export const OUT_FOLDERS = ['dist-web', 'dist', 'web-build'];
 
 /** Every file the site is made of besides the bundle, the sounds and the favicon. */
 export const SITE_FILES = ['index.html', '404.html', 'guard.js', 'site.css', 'robots.txt', '.well-known/security.txt', '_headers', '_redirects', '.htaccess'];
+
+/** The hosts' configurations public/ carries; nginx's is deploy/nginx.conf, outside the site. */
+export const CONFIGS = ['_headers', '_redirects', '.htaccess'];
+
+/**
+ * What a build for each host keeps of CONFIGS, and whether it gets .nojekyll. Cloudflare Pages
+ * reads _headers and _redirects (and skips the 404 rules, which it does not support); nginx and
+ * GitHub Pages read none of them.
+ */
+export const HOSTS = {
+  'github-pages': { keep: [], nojekyll: true },
+  netlify: { keep: ['_headers', '_redirects'], nojekyll: false },
+  cloudflare: { keep: ['_headers', '_redirects'], nojekyll: false },
+  apache: { keep: ['.htaccess'], nojekyll: false },
+  nginx: { keep: [], nojekyll: false },
+};
+
+/** A built site in `out` finished for `host`, or for any host when it is null. */
+export function finishForHost(out, host) {
+  const { keep, nojekyll } = host === null ? { keep: CONFIGS, nojekyll: true } : HOSTS[host];
+  for (const file of CONFIGS) if (!keep.includes(file)) fs.rmSync(path.join(out, file), { force: true });
+  if (nojekyll) fs.writeFileSync(path.join(out, '.nojekyll'), '');
+}
 
 /** The Content-Security-Policy the `/*` rule of a _headers file gives every path. */
 export function headerPolicy(headersText) {
@@ -81,22 +111,23 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const args = { base: '', out: 'dist-web' };
+  const args = { base: '', out: 'dist-web', host: null };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if ((flag === '--base' || flag === '--out') && value !== undefined) {
+    if ((flag === '--base' || flag === '--out' || flag === '--host') && value !== undefined) {
       args[flag.slice(2)] = value;
       i += 1;
     } else {
-      fail(`unknown argument ${JSON.stringify(flag)}; usage: node scripts/build-web.mjs [--base /path] [--out dir]`);
+      fail(`unknown argument ${JSON.stringify(flag)}; usage: node scripts/build-web.mjs [--base /path] [--out dir] [--host ${Object.keys(HOSTS).join('|')}]`);
     }
   }
   return args;
 }
 
-function build({ base, out: outArg }) {
+function build({ base, out: outArg, host }) {
   if (base && !BASE.test(base)) fail(`--base must be a path such as /multidconnect4, not ${JSON.stringify(base)}`);
+  if (host !== null && !Object.hasOwn(HOSTS, host)) fail(`--host is one of ${Object.keys(HOSTS).join(', ')}, not ${JSON.stringify(host)}`);
   const out = path.resolve(root, outArg);
   // The exporter deletes its output folder before it writes. Inside the checkout that is one of
   // the ignored build folders and nothing else (`--out src` would take the source with it);
@@ -137,7 +168,8 @@ function build({ base, out: outArg }) {
   } catch (error) {
     fail(error.message);
   }
-  console.log(`build-web: the site is ${path.relative(root, out) || out}${base ? `, served under ${base}/` : ''}`);
+  finishForHost(out, host);
+  console.log(`build-web: the site is ${path.relative(root, out) || out}, for ${host ?? 'any host'}${base ? `, served under ${base}/` : ''}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) build(parseArgs(process.argv.slice(2)));

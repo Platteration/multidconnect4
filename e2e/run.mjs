@@ -7,8 +7,10 @@
 // and any request outside the site's sub-path, and it plays the game: the welcome, a drop for each
 // side, a time travel that branches a timeline, an undo, a spin, the sounds, Play by message
 // (copy, then the link it makes), the settings, a reload that keeps the game, and a game against
-// the bot. Then the not-found page, the repository's own files, and the safety net: a bundle that
-// does not load, a bundle that throws, and no JavaScript at all.
+// the bot. Then the not-found page, the repository's own files, the site built for GitHub Pages
+// and served as Pages serves it, and the safety net: a bundle that does not load, a bundle that
+// throws, no JavaScript at all, and failures from scripts that are not the site's, which must
+// not leave the note over a game that works.
 //
 //   npm run test:e2e        builds the site, then runs this
 //   node e2e/run.mjs        runs this against the dist-web/ already built
@@ -18,6 +20,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { finishForHost } from '../scripts/build-web.mjs';
 import { headersFor, parseHeaders, serveSite } from './serve.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -306,7 +309,9 @@ try {
   });
 
   await step("the repository's own files, and the configurations, are not part of the site", async () => {
-    for (const file of ['README.md', '.git/config', '.git/HEAD', 'deploy/nginx.conf', '_headers', '_redirects', '.htaccess', 'metadata.json', 'package.json', 'app.json', '_expo/', 'assets/']) {
+    // The repository's files 404 because the build holds none of them; the configurations,
+    // .nojekyll and metadata.json are in a build for any host, and _redirects refuses them.
+    for (const file of ['README.md', '.git/config', '.git/HEAD', 'deploy/nginx.conf', '_headers', '_redirects', '.htaccess', '.nojekyll', 'metadata.json', 'package.json', 'app.json', '_expo/', 'assets/']) {
       const response = await page.request.get(`${site.url}${file}`);
       assert.equal(response.status(), 404, `${file} answered ${response.status()}`);
       assert.ok((await response.text()).includes(NOT_FOUND), `${file} answered the not-found page`);
@@ -353,10 +358,16 @@ try {
     await bare.close();
   });
 
-  await step("on a host that sends no headers, the page's own <meta> holds the game to the policy", async () => {
-    // GitHub Pages sends none of _headers. The game must still play under the <meta> alone,
-    // and the <meta> must still bite.
-    const pages = await serveSite({ root: SITE, base: BASE, headers: false });
+  await step("on GitHub Pages, which reads none of the hosts' files, the page's own <meta> holds the game to the policy", async () => {
+    // GitHub Pages sends none of _headers and reads no _redirects. The game must still play under
+    // the <meta> alone, and the <meta> must still bite. The site is the one a build with
+    // `--host github-pages` writes: this build in a copy, less the .nojekyll a build for any host
+    // gets, so that what the copy holds is what finishing it for GitHub Pages put there.
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'multidconnect4-pages-'));
+    fs.cpSync(SITE, folder, { recursive: true });
+    fs.rmSync(path.join(folder, '.nojekyll'));
+    finishForHost(folder, 'github-pages');
+    const pages = await serveSite({ root: folder, base: BASE, host: 'github-pages' });
     try {
       const bare = await browser.newContext();
       const p = await bare.newPage();
@@ -380,10 +391,17 @@ try {
         }
       });
       assert.equal(written, 'TypeError', 'the <meta> enforces Trusted Types');
+      // Pages serves whatever the folder holds, so a build for it holds no host's configuration;
+      // and .nojekyll, without which a branch deploy runs Jekyll, which drops _expo/ (the game).
+      for (const file of ['_headers', '_redirects', '.htaccess']) {
+        assert.equal((await p.request.get(`${pages.url}${file}`)).status(), 404, `${file} is not in a build for GitHub Pages`);
+      }
+      assert.equal((await p.request.get(`${pages.url}.nojekyll`)).status(), 200);
       assert.deepEqual(pages.outside, []);
       await bare.close();
     } finally {
       pages.server.close();
+      fs.rmSync(folder, { recursive: true, force: true });
     }
   });
 
@@ -416,6 +434,98 @@ try {
     await p.goto(site.url);
     await p.locator('#boot-failed').waitFor({ state: 'visible' });
     await thrown.close();
+  });
+
+  /**
+   * A page where another script fails while the game starts: after the page is parsed and before
+   * the deferred bundle has drawn, the window the note used to stay up in for good, over a game
+   * that played. `fault` is 'throw' or 'reject', done at that moment, or 'load', a script element
+   * the page was given (see below) that fails to load then. Whether the note ever showed is kept.
+   */
+  async function foreignFailure(context, fault) {
+    await context.addInitScript((kind) => {
+      window.__e2eNoteShown = false;
+      window.addEventListener(
+        'error',
+        (e) => {
+          if (e.target && e.target.tagName === 'SCRIPT' && e.target.src.includes('/elsewhere/')) {
+            window.__e2eRootChildren = document.getElementById('root').childElementCount;
+            window.__e2eForeignFailed = true;
+          }
+        },
+        true,
+      );
+      document.addEventListener('readystatechange', () => {
+        if (document.readyState !== 'interactive') return;
+        const note = document.getElementById('boot-failed');
+        new MutationObserver(() => {
+          if (!note.hidden) window.__e2eNoteShown = true;
+        }).observe(note, { attributes: true });
+        if (kind === 'load') return;
+        setTimeout(() => {
+          window.__e2eRootChildren = document.getElementById('root').childElementCount;
+          if (kind === 'throw') throw new Error('e2e: a foreign script throws');
+          void Promise.reject(new Error('e2e: a foreign promise rejects'));
+        }, 0);
+      });
+    }, fault);
+  }
+  /** The game plays, the note is out of sight, and the failure came before the first draw. */
+  async function playsWithoutNote(p) {
+    await p.goto(site.url);
+    await button(p, 'Skip').click();
+    await button(p, 'row 1 column 4 empty').click();
+    await button(p, 'row 1 column 4 red').waitFor();
+    assert.equal(await p.evaluate(() => window.__e2eRootChildren), 0, 'the failure came before the game drew');
+    assert.equal(await p.locator('#boot-failed').isHidden(), true, 'no "could not start" over a game that plays');
+  }
+
+  await step("an error thrown by a script that is not the site's never shows the note", async () => {
+    // A browser extension, or anything else that runs script in the page. Its error names a file
+    // that is not one of the site's (here none at all), so the guard does not count it.
+    const noisy = await browser.newContext();
+    const p = await watched(noisy, 'foreign throw', [/e2e: a foreign script throws/]);
+    await foreignFailure(noisy, 'throw');
+    await playsWithoutNote(p);
+    assert.equal(await p.evaluate(() => window.__e2eNoteShown), false, 'the note never showed');
+    await noisy.close();
+  });
+
+  await step("a script that is not the site's failing to load never shows the note", async () => {
+    // A host or a proxy that writes a script of its own into the page, deferred and so run (here,
+    // failing to load) after the page is parsed and before the game's bundle. A script built in
+    // the page instead could not even be given an address: Trusted Types refuse it. The address
+    // is outside the site, so `watched`, which fails on any such request, is not used: the
+    // request is stopped in the browser and never reaches the server.
+    const noisy = await browser.newContext();
+    const p = await noisy.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    p.on('console', (m) => {
+      if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text());
+    });
+    await p.route(`${site.origin}/elsewhere/**`, (route) => route.abort());
+    await p.route(site.url, async (route) => {
+      const response = await route.fetch();
+      const html = (await response.text()).replace('</head>', '<script src="/elsewhere/missing.js" defer></script></head>');
+      await route.fulfill({ response, body: html });
+    });
+    await foreignFailure(noisy, 'load');
+    await playsWithoutNote(p);
+    assert.equal(await p.evaluate(() => window.__e2eForeignFailed), true, 'the foreign script failed to load');
+    assert.equal(await p.evaluate(() => window.__e2eNoteShown), false, 'the note never showed');
+    assert.deepEqual(errors, []);
+    await noisy.close();
+  });
+
+  await step("a promise rejected by a script that is not the site's is taken back once the game draws", async () => {
+    // A rejection names no script, so the guard cannot tell whose it was and may show the note;
+    // the game drawing is what withdraws it.
+    const noisy = await browser.newContext();
+    const p = await watched(noisy, 'foreign rejection', [/e2e: a foreign promise rejects/]);
+    await foreignFailure(noisy, 'reject');
+    await playsWithoutNote(p);
+    await noisy.close();
   });
 
   await step('with JavaScript off, the page says what it needs', async () => {

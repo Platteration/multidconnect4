@@ -53,24 +53,38 @@ function codeIn(url: string): string | null {
   return /\/load\/([^/?#]+)\/?$/.exec(parts.path)?.[1] ?? null;
 }
 
-let launchUrlTaken = false;
+/** The link one launch of the app was started with, answered once. */
+export interface LaunchLink {
+  /** What `read` reports, the first time this is called, and null every time after. */
+  take(read: () => Promise<string | null>): Promise<string | null>;
+}
 
 /**
- * The address the app was launched with, the first time it is asked for in a
- * run, and null every time after. `read` is the platform's getInitialURL,
- * which is no record of what is still waiting: React Native reports the intent
- * or launch option that started the app for as long as it runs, and
- * react-native-web the `location.href` it read when the bundle loaded, before
- * clearCodeFromUrl took the code out of it. The screen that asks is mounted
- * again by the error boundary's reset, and asking again there loaded the
- * launch link's game - one the player had declined included - over the new
- * game the reset had just promised, without a question. A link that arrives
- * while the app runs comes through the `url` event instead, once per link.
+ * A launch's link, to be held by App: one per mount of the app's root, which is
+ * one per launch. `read` is the platform's getInitialURL, which is no record of
+ * what is still waiting: React Native reports the intent or launch option that
+ * started the app for as long as it runs, and react-native-web the
+ * `location.href` it read when the bundle loaded, before clearCodeFromUrl took
+ * the code out of it. The screen that asks is mounted again under App by the
+ * error boundary ("Try again", and the reset), and asking again there loaded
+ * the launch link's game - one the player had declined included - over the new
+ * game the reset had just promised, without a question. So the answer is kept
+ * above the boundary, in App, and not in this module: on Android the
+ * JavaScript runtime belongs to the application and outlives an Activity that
+ * is destroyed and started again from another link, and that new launch
+ * mounts a new App, which asks again and is answered with its own link. A link
+ * that arrives while the app runs comes through the `url` event instead, once
+ * per link.
  */
-export function takeLaunchUrl(read: () => Promise<string | null>): Promise<string | null> {
-  if (launchUrlTaken) return Promise.resolve(null);
-  launchUrlTaken = true;
-  return read();
+export function launchLink(): LaunchLink {
+  let taken = false;
+  return {
+    take(read) {
+      if (taken) return Promise.resolve(null);
+      taken = true;
+      return read();
+    },
+  };
 }
 
 /** A shareable link for the web build, or null when not running on the web. */

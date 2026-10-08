@@ -77,7 +77,12 @@ carried inline plus the notes and the not-found page, `404.html`, `robots.txt`,
 hosts' `_headers`, `_redirects` and `.htaccess`; nginx's copy is `deploy/nginx.conf`. The headers
 are written in all three and the policy in both built pages' `<meta>` too (less `frame-ancestors`),
 and `src/app/__tests__/website.test.ts` reads every copy and requires them equal, path by path,
-including the cache rules and the paths each host refuses; change one and change them all. The
+including the cache rules and the files of the built folder each host refuses; change one and
+change them all. `_redirects` and `.htaccess` are read only from the folder they are published
+in, so they name only paths that folder can hold (the test fails on a rule that could never
+fire); only nginx's rules, the server's own, still hold if a checkout is ever served, and the
+README says what they do not cover. Apache's `Header` lines are read whole, conditions
+included, and its year-long cache applies only to a file that exists (`-f`). The
 policy was measured by playing the game in Chromium under it, not copied: `style-src` carries
 the hash of the empty string and no `'unsafe-inline'`, because react-native-web creates an empty
 `<style>` and fills it through `insertRule`; `img-src 'self'` is the favicon (only the full
@@ -86,10 +91,20 @@ the sounds, `connect-src 'none'` the absence of network code, and Trusted Types 
 `npm run test:e2e` builds the site for `/multidconnect4/` (`app.config.js` reads `WEB_BASE_URL`
 into `experiments.baseUrl`; `build-web.mjs` also prefixes `404.html` and `.htaccess`) and
 `e2e/run.mjs` plays it under `e2e/serve.mjs`, which answers as Netlify reads `_headers` and
-`_redirects`; it fails on any violation, page or console error, or request outside the sub-path.
+`_redirects` (or, for the GitHub Pages scenario, as Pages does, reading neither); it fails on any
+violation, page or console error, or request outside the sub-path. `guard.js` counts only the
+failures of the site's own scripts (a `.js` file below the folder it was loaded from) and takes
+its note back once the game draws, since a rejected promise names no script; the suite throws,
+rejects and fails a script load from elsewhere before the first draw to hold it to that.
 `build-web.mjs` refuses an `--out` inside the checkout other than `dist-web`, `dist` or
 `web-build`, and one that holds the checkout, because the exporter empties its output folder
-first; its tests run it against a stand-in exporter in a temporary folder for that reason. On
+first; its tests run it against a stand-in exporter in a temporary folder for that reason.
+`--host` (`github-pages`, `netlify`, `cloudflare`, `apache`, `nginx`, the names chesscheatser's
+build uses) keeps only the configuration that host reads, because a host serves any other as a
+plain file; a build for GitHub Pages, or for no host, also gets an empty `.nojekyll`, because
+Pages runs a branch deploy through Jekyll, which drops `_expo/`. The launch link is answered once
+per mount of `App` (`launchLink()` in `src/app/links.ts`, held above the error boundary), not once
+per JavaScript runtime, which on Android outlives an Activity started again from another link. On
 the web the Vibration row is shown off, disabled and says why (`WEB_VIBRATION_HINT`), since
 `feedback.ts` never vibrates there. In a window wider than it is tall the left column is a
 `ScrollView`, whose own style must not lay out children (`justifyContent`, `alignItems`): both

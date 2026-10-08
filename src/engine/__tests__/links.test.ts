@@ -2,7 +2,7 @@
  * Links carrying a game code. A code left in the web address bar is re-imported
  * on every reload, which throws away whatever has been played since.
  */
-import { clearCodeFromUrl, codeFromUrl, urlWithoutCode } from '../../app/links';
+import { clearCodeFromUrl, codeFromUrl, launchLink, urlWithoutCode } from '../../app/links';
 
 describe('codeFromUrl', () => {
   it('finds the code in every shape of link', () => {
@@ -151,36 +151,39 @@ describe('clearCodeFromUrl', () => {
   });
 });
 
-describe('takeLaunchUrl', () => {
+describe('launchLink', () => {
   // The platform's getInitialURL reports the launch link for the whole run, so
   // a second mount of the screen asking it again re-imported a link already
   // answered (src/ui/__tests__/launchLink.test.ts drives that through the app).
-  // Each case loads the module afresh: what it remembers is per run.
-  const fresh = (): typeof import('../../app/links') => {
-    let mod!: typeof import('../../app/links');
-    jest.isolateModules(() => {
-      mod = require('../../app/links');
-    });
-    return mod;
-  };
+  // What one LaunchLink remembers is one launch's: App holds one per mount.
 
   it('hands over the launch link the first time it is asked, and nothing after', async () => {
-    const { takeLaunchUrl } = fresh();
+    const launch = launchLink();
     const read = jest.fn(async () => 'multidconnect4://?code=5DC4.abc');
-    await expect(takeLaunchUrl(read)).resolves.toBe('multidconnect4://?code=5DC4.abc');
-    await expect(takeLaunchUrl(read)).resolves.toBeNull();
-    await expect(takeLaunchUrl(read)).resolves.toBeNull();
+    await expect(launch.take(read)).resolves.toBe('multidconnect4://?code=5DC4.abc');
+    await expect(launch.take(read)).resolves.toBeNull();
+    await expect(launch.take(read)).resolves.toBeNull();
     // Not asked again at all, so a platform that keeps reporting it cannot.
     expect(read).toHaveBeenCalledTimes(1);
   });
 
   it('counts a launch with no link, or one that could not be read, as the one ask', async () => {
-    const quiet = fresh();
-    await expect(quiet.takeLaunchUrl(async () => null)).resolves.toBeNull();
-    await expect(quiet.takeLaunchUrl(async () => 'multidconnect4://?code=5DC4.late')).resolves.toBeNull();
+    const quiet = launchLink();
+    await expect(quiet.take(async () => null)).resolves.toBeNull();
+    await expect(quiet.take(async () => 'multidconnect4://?code=5DC4.late')).resolves.toBeNull();
 
-    const failing = fresh();
-    await expect(failing.takeLaunchUrl(() => Promise.reject(new Error('no native module')))).rejects.toThrow('no native module');
-    await expect(failing.takeLaunchUrl(async () => 'multidconnect4://?code=5DC4.late')).resolves.toBeNull();
+    const failing = launchLink();
+    await expect(failing.take(() => Promise.reject(new Error('no native module')))).rejects.toThrow('no native module');
+    await expect(failing.take(async () => 'multidconnect4://?code=5DC4.late')).resolves.toBeNull();
+  });
+
+  it('answers each launch for itself, in the same run', async () => {
+    // A JavaScript runtime that outlives a launch (Android keeps it for the
+    // application) still asks for the next launch's link.
+    const first = launchLink();
+    await expect(first.take(async () => 'multidconnect4://?code=5DC4.a')).resolves.toBe('multidconnect4://?code=5DC4.a');
+    const second = launchLink();
+    await expect(second.take(async () => 'multidconnect4://?code=5DC4.b')).resolves.toBe('multidconnect4://?code=5DC4.b');
+    await expect(first.take(async () => 'multidconnect4://?code=5DC4.b')).resolves.toBeNull();
   });
 });
