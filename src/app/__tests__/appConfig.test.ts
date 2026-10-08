@@ -104,7 +104,10 @@ const pluginOptions = (name: string) => {
   return Array.isArray(entry) ? entry[1] || {} : {};
 };
 
-/** Every source file the app ships, outside the tests: its path from the root, and its text. */
+/**
+ * Every source file the app ships, outside the tests: its path from the root, and its text. The
+ * website ships one script of its own beside the bundle, the safety net in public/.
+ */
 const sourceFiles = (): [string, string][] => {
   const out: [string, string][] = [];
   const walk = (dir: string) => {
@@ -118,7 +121,7 @@ const sourceFiles = (): [string, string][] => {
     }
   };
   walk(path.join(root, 'src'));
-  for (const file of ['App.tsx', 'index.ts']) out.push([file, fs.readFileSync(path.join(root, file), 'utf8')]);
+  for (const file of ['App.tsx', 'index.ts', path.join('public', 'guard.js')]) out.push([file, fs.readFileSync(path.join(root, file), 'utf8')]);
   return out;
 };
 const sourceText = () => sourceFiles().map(([, text]) => text).join('\n');

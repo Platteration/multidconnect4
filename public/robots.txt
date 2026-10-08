@@ -1,0 +1,3 @@
+# 5D Connect Four: a single-page game. Everything public is the one page.
+User-agent: *
+Allow: /

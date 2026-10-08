@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import React, { useMemo, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useEntitlements } from '../app/entitlements';
 import { ReduceMotionChoice, ThemeChoice, useSettings } from '../app/settings';
 import { Button, ConfirmPanel } from './Modals';
@@ -11,6 +11,12 @@ import { useTheme } from '../app/theme';
 export const APP_NAME = Constants.expoConfig?.name ?? '5D Connect Four';
 export const APP_VERSION = Constants.expoConfig?.version ?? '0.0.0';
 export const SOURCE_URL = 'https://github.com/Platteration/multidconnect4';
+/**
+ * What the Vibration row says in a browser, where the game never vibrates (feedback.ts skips
+ * the call on the web): a switch there would be a control that does nothing, so it is shown off,
+ * cannot be pressed, and says why.
+ */
+export const WEB_VIBRATION_HINT = 'A browser cannot vibrate for the game; the phone app can.';
 
 interface Props {
   visible: boolean;
@@ -57,8 +63,9 @@ export function SettingsModal({ visible, onClose, children }: Props) {
               <Section title="Feel">
                 <SwitchRow
                   label="Vibration"
-                  hint="A tick when you place, a thud when things fall."
-                  value={settings.haptics}
+                  hint={Platform.OS === 'web' ? WEB_VIBRATION_HINT : 'A tick when you place, a thud when things fall.'}
+                  value={Platform.OS === 'web' ? false : settings.haptics}
+                  disabled={Platform.OS === 'web'}
                   onValueChange={(v) => update({ haptics: v })}
                 />
                 <SwitchRow label="Sound" hint="Short clicks and whooshes." value={settings.sound} onValueChange={(v) => update({ sound: v })} />
@@ -166,10 +173,22 @@ export function Row({ label, hint, children }: { label: string; hint?: string; c
 }
 
 /** A row with one switch, which announces the row's label rather than "switch, on". */
-export function SwitchRow({ label, hint, value, onValueChange }: { label: string; hint?: string; value: boolean; onValueChange: (v: boolean) => void }) {
+export function SwitchRow({
+  label,
+  hint,
+  value,
+  disabled,
+  onValueChange,
+}: {
+  label: string;
+  hint?: string;
+  value: boolean;
+  disabled?: boolean;
+  onValueChange: (v: boolean) => void;
+}) {
   return (
     <Row label={label} hint={hint}>
-      <Switch value={value} onValueChange={onValueChange} accessibilityLabel={label} />
+      <Switch value={value} onValueChange={onValueChange} disabled={disabled} accessibilityLabel={label} />
     </Row>
   );
 }
