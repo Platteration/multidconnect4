@@ -247,7 +247,8 @@ src/app/persist.ts         every storage key, the key migration, AsyncStorage he
 src/app/validate.ts        what a stored record may contain; every read goes through it
 src/app/share.ts           game codes for play by message (app/base64.ts)
 src/app/savedGame.ts       the game in storage: actions out, a replay back in
-src/app/links.ts           deep links carrying a game code, and clearing one
+src/app/links.ts           deep links carrying a game code, clearing one, and
+                           the launch link, answered once per run
 src/app/__tests__/         the app config, the settings contract, the validator
                            and the game read back out of storage
 src/app/purchases.ts       the store seam; app/entitlements.tsx gates premium looks
@@ -263,7 +264,7 @@ src/ui/*Modal.tsx          menu, rules, settings, new game, puzzles, share, extr
 src/ui/ErrorBoundary.tsx   the fallback for a render that throws; its button
                            clears the saved game
 src/ui/__tests__/          the map's windowing, the board, the share sheet, the
-                           error boundary and the guards
+                           error boundary, the launch link and the guards
 public/                    the website around the game, which the web export
                            copies beside it: the page template (index.html),
                            the safety net (guard.js), site.css, 404.html,

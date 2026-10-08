@@ -150,3 +150,37 @@ describe('clearCodeFromUrl', () => {
     expect(() => clearCodeFromUrl()).not.toThrow();
   });
 });
+
+describe('takeLaunchUrl', () => {
+  // The platform's getInitialURL reports the launch link for the whole run, so
+  // a second mount of the screen asking it again re-imported a link already
+  // answered (src/ui/__tests__/launchLink.test.ts drives that through the app).
+  // Each case loads the module afresh: what it remembers is per run.
+  const fresh = (): typeof import('../../app/links') => {
+    let mod!: typeof import('../../app/links');
+    jest.isolateModules(() => {
+      mod = require('../../app/links');
+    });
+    return mod;
+  };
+
+  it('hands over the launch link the first time it is asked, and nothing after', async () => {
+    const { takeLaunchUrl } = fresh();
+    const read = jest.fn(async () => 'multidconnect4://?code=5DC4.abc');
+    await expect(takeLaunchUrl(read)).resolves.toBe('multidconnect4://?code=5DC4.abc');
+    await expect(takeLaunchUrl(read)).resolves.toBeNull();
+    await expect(takeLaunchUrl(read)).resolves.toBeNull();
+    // Not asked again at all, so a platform that keeps reporting it cannot.
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a launch with no link, or one that could not be read, as the one ask', async () => {
+    const quiet = fresh();
+    await expect(quiet.takeLaunchUrl(async () => null)).resolves.toBeNull();
+    await expect(quiet.takeLaunchUrl(async () => 'multidconnect4://?code=5DC4.late')).resolves.toBeNull();
+
+    const failing = fresh();
+    await expect(failing.takeLaunchUrl(() => Promise.reject(new Error('no native module')))).rejects.toThrow('no native module');
+    await expect(failing.takeLaunchUrl(async () => 'multidconnect4://?code=5DC4.late')).resolves.toBeNull();
+  });
+});
