@@ -33,4 +33,9 @@ describe('game codes', () => {
     const tampered = bad.replace(/.$/, 'A');
     expect(() => decodeGame(tampered)).toThrow();
   });
+
+  it('rejects malformed actions before the engine sees them', () => {
+    const payload = { v: 1, r: {}, m: 'local', a: [{ type: 'drop', timeline: 0, col: '0' }] };
+    expect(() => decodeGame(`5DC4.${encode(JSON.stringify(payload))}`)).toThrow(/invalid move/);
+  });
 });

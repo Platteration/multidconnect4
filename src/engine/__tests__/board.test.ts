@@ -115,6 +115,12 @@ describe('board', () => {
     expect(isFull(board)).toBe(true);
     expect(findLines(board)).toEqual([]);
   });
+
+  it('does not alias out-of-range coordinates into another row', () => {
+    const board = dropDisc(emptyBoard(), 0, 0)!.board;
+    expect(cellAt(board, 0, 7)).toBeNull();
+    expect(removeDisc(board, 0, 7)).toEqual(board);
+  });
 });
 
 describe('spinning', () => {
