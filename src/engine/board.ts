@@ -29,6 +29,11 @@ export interface Board {
 
 type Dims = Pick<Board, 'cols' | 'rows'>;
 
+/** True only for a real cell; untrusted imported actions must not alias rows. */
+export function inside(board: Dims, row: number, col: number): boolean {
+  return Number.isInteger(row) && Number.isInteger(col) && row >= 0 && row < board.rows && col >= 0 && col < board.cols;
+}
+
 export function index(board: Dims, row: number, col: number): number {
   return row * board.cols + col;
 }
@@ -46,7 +51,7 @@ export function emptyBoard(cols = COLS, rows = ROWS): Board {
 }
 
 export function cellAt(board: Board, row: number, col: number): Cell {
-  return board.cells[index(board, row, col)];
+  return inside(board, row, col) ? board.cells[index(board, row, col)] ?? null : null;
 }
 
 /** Lowest empty row in a column, or -1 when the column is full. */
@@ -83,6 +88,7 @@ export function dropDisc(board: Board, col: number, player: Player): { board: Bo
  * board rearranges itself.
  */
 export function removeDisc(board: Board, row: number, col: number): Board {
+  if (!inside(board, row, col)) return board;
   const cells = board.cells.slice();
   for (let r = row; r < board.rows - 1; r++) {
     cells[index(board, r, col)] = cells[index(board, r + 1, col)];
