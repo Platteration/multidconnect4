@@ -8,6 +8,8 @@ The app identifiers are `com.platteration.multidconnect4` on iOS and Android. Co
 
 Unit tests run in Node with Jest 30 and the installed TypeScript compiler; they do not mock or exercise native modules. The NYC YAML loader has a scoped `js-yaml` 4.3.2 override to remove its old `argparse`/`sprintf-js` dependency chain. Keep this override under review when updating Jest.
 
+Xcode's UUID dependency is scoped to 11.1.1 to clear its UUID advisory while preserving Xcode's CommonJS `v4()` API. ID generation and project write/parse checks pass; signed native builds remain required. Remove this override when upstream Xcode depends on a patched UUID version.
+
 ## Native build and submission
 
 1. Resolve outstanding dependency-audit findings; keep the audit gate enabled. Run `npm ci` and `npm run typecheck && npm test -- --ci --runInBand`.
