@@ -109,7 +109,7 @@ npm run web        # in a browser
 Quality checks:
 
 ```sh
-npm test           # engine unit tests (jest-expo)
+npm test           # engine unit tests (Jest 30, Node environment)
 npm run typecheck  # tsc --noEmit
 ```
 

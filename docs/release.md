@@ -6,6 +6,8 @@ The app identifiers are `com.platteration.multidconnect4` on iOS and Android. Co
 
 `.github/workflows/pages.yml` runs checks and exports with `/multidconnect4` as the URL prefix. It publishes through GitHub Actions on the default/release branch and `codex/ui-readiness-fixes-20261010`, and can be dispatched manually. GitHub Pages must use the GitHub Actions source. A browser preview is separate from a signed app-store release.
 
+Unit tests run in Node with Jest 30 and the installed TypeScript compiler; they do not mock or exercise native modules. The NYC YAML loader has a scoped `js-yaml` 4.3.2 override to remove its old `argparse`/`sprintf-js` dependency chain. Keep this override under review when updating Jest.
+
 ## Native build and submission
 
 1. Resolve outstanding dependency-audit findings; keep the audit gate enabled. Run `npm ci` and `npm run typecheck && npm test -- --ci --runInBand`.
