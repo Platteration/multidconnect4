@@ -1,0 +1,26 @@
+# Release 5D Connect Four
+
+The app identifiers are `com.platteration.multidconnect4` on iOS and Android. Confirm that these belong to your developer accounts before building.
+
+## Browser publication
+
+`.github/workflows/pages.yml` runs checks and exports with `/multidconnect4` as the URL prefix. It publishes through GitHub Actions on the default/release branch, and can be dispatched manually. GitHub Pages must use the GitHub Actions source. A browser preview is separate from a signed app-store release.
+
+Unit tests run in Node with Jest 30 and the installed TypeScript compiler; they do not mock or exercise native modules. The NYC YAML loader has a scoped `js-yaml` 4.3.2 override to remove its old `argparse`/`sprintf-js` dependency chain. Keep this override under review when updating Jest.
+
+Xcode's UUID dependency is scoped to 11.1.1 to clear its UUID advisory while preserving Xcode's CommonJS `v4()` API. ID generation and project write/parse checks pass; signed native builds remain required. Remove this override when upstream Xcode depends on a patched UUID version.
+
+## Native build and submission
+
+1. Resolve outstanding dependency-audit findings; keep the audit gate enabled. Run `npm ci` and `npm run typecheck && npm test -- --ci --runInBand`.
+2. Sign in to the correct Expo account with `npx eas-cli login`, then link this checkout with `npx eas-cli init`. Use the existing profiles in `eas.json`. Never commit signing credentials.
+3. Build an Android tester APK with `npx eas-cli build --profile preview --platform android`. Obtain an iOS internal/TestFlight build through your Apple account.
+4. Test cold launch, safe areas, portrait/landscape and tablet layouts, background/foreground recovery, force-close/reopen, sound, vibration, screen readers, focus, reduce motion and every cosmetic on physical devices. Browser emulation and Metro exports do not verify these.
+5. Review [the listing draft](store-listing.md), supply support/privacy URLs and capture native screenshots. Review the final SDKs before answering store privacy/data-safety forms.
+6. After device and account checks, build with `npx eas-cli build --profile production --platform all`; submit the correct signed builds with `npx eas-cli submit --profile production --platform ios` and `--platform android`. Store review remains external.
+
+## 5D Connect Four checks
+
+Leave STORE_ENABLED false until purchases and store-backed restore are real. Check spin/flip animations, gravity, travel wins, pop-out, strict present and replay. Inspect native adaptive icon masks.
+
+No real purchase, native device test, signed EAS build or store submission was performed by this cloud preparation.
