@@ -20,11 +20,12 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import React from 'react';
-import { Animated, ScrollView } from 'react-native';
+import { Animated, ScrollView, Text } from 'react-native';
 import TestRenderer, { ReactTestInstance, ReactTestRenderer, act } from 'react-test-renderer';
 import { Action, BoardRef, GameState, Timeline, applyAction, getTimeline, latestBoard, latestRef, newGame, timelineLabel } from '../../engine';
 import { MINI_HEIGHT, MINI_WIDTH } from '../MiniBoard';
 import { MAP_LAYOUT, MultiverseMap } from '../MultiverseMap';
+import { DEFAULT_THEME } from '../theme';
 
 const { HEADER, ROW, SLOT, SLOT_TOP } = MAP_LAYOUT;
 
@@ -175,6 +176,36 @@ describe('what the map mounts', () => {
  * whole suite green, and the setting would have gone on saving and restoring
  * while doing nothing.
  */
+describe('the labels', () => {
+  /** A style as it is drawn: an array of styles merged left to right (map.test.ts's reading). */
+  const flatten = (style: unknown): Record<string, unknown> =>
+    Array.isArray(style) ? Object.assign({}, ...style.map(flatten)) : ((style ?? {}) as Record<string, unknown>);
+  /** The colour of the one text on the map that reads exactly `text`. */
+  const colourOf = (tree: ReactTestRenderer, text: string): unknown => {
+    const found = tree.root.findAll(
+      (node) => node.type === Text && ([] as unknown[]).concat(node.props.children).join('') === text,
+    );
+    if (found.length !== 1) throw new Error(`${found.length} texts read ${text}`);
+    return flatten(found[0]!.props.style).color;
+  };
+
+  it("writes the turns and the timelines' names in the label shade, not the disc colour", () => {
+    // Small text on the screen's own surfaces: theme.test.ts holds playerAccent to
+    // AA there, and the disc fills are often too pale for it. Without a provider
+    // the map draws with the default theme, where the two differ for the first
+    // player - so this cannot pass by the two being the same colour.
+    const { players, playerAccent } = DEFAULT_THEME;
+    expect(playerAccent[0]).not.toBe(players[0]);
+    // Timeline 2 (T3) was opened by the first player; turn 0 is theirs to move.
+    const tree = render(multiverse(3, 4), { timeline: 0, turn: 0 });
+    layout(tree, VIEWPORT);
+    expect(colourOf(tree, 't0')).toBe(playerAccent[0]);
+    expect(colourOf(tree, 'T3')).toBe(playerAccent[0]);
+    expect(colourOf(tree, 't1')).toBe(playerAccent[1]);
+    expect(colourOf(tree, 'T2')).toBe(playerAccent[1]);
+  });
+});
+
 describe('less motion', () => {
   const drop = (col: number): Action => ({ type: 'drop', timeline: 0, col });
   const played = [drop(0), drop(1), drop(2), drop(3)].reduce((s, a) => applyAction(s, a), newGame());

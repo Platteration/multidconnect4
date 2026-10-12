@@ -87,3 +87,27 @@ describe('palette contrast', () => {
     expect(src).not.toMatch(/\bsubtitle: \{ color:/);
   });
 });
+
+// The map's turn labels and timeline names are small text on the screen's own
+// surfaces, written in each piece set's label shade (`playerAccent`) rather than
+// in the disc fill, which is often too pale to read on the light palette.
+describe.each(SCHEMES)('%s player labels', (scheme) => {
+  test('normal and secondary text remain readable on every panel', () => {
+    const theme = buildTheme(scheme, 'classic', 'classic');
+    for (const background of [theme.background, theme.panel, theme.panelRaised]) {
+      for (const foreground of [theme.text, theme.textMuted]) {
+        expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+  test.each(PIECE_SETS)('$name text remains readable in every board skin', (set) => {
+    for (const skin of SKINS) {
+      const theme = buildTheme(scheme, skin.id, set.id);
+      for (const background of [theme.background, theme.panel, theme.panelRaised]) {
+        for (const foreground of theme.playerAccent) {
+          expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+});

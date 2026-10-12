@@ -122,11 +122,16 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice, launch
   // code or any web page, and loading it would throw away the game the two
   // players are in the middle of.
   const [linkedCode, setLinkedCode] = useState<string | null>(null);
+  // A link whose game will not load says why, until the next move, in the
+  // line the screen's other notices use: Alert.alert is an empty stub on the
+  // web, and a link that silently does nothing reads as a link that worked.
+  const [linkProblem, setLinkProblem] = useState<{ text: string; at: GameState[] } | null>(null);
   // Whether it loaded or not: a code left in the web address bar is read
   // again on every reload, and one that was refused is refused again just as
   // often - or asked about again, over a game that has moved on since.
   const acceptLinkedCode = (code: string) => {
-    loadCode(code);
+    const problem = loadCode(code);
+    setLinkProblem(problem ? { text: `Could not load the shared game. ${problem}`, at: game.history } : null);
     clearCodeFromUrl();
   };
   const offerCode = (code: string) => {
@@ -222,6 +227,8 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice, launch
   // than for one frame nobody reads or over the top of every later hint.
   const restoredLength = useRef(initialHistory?.length ?? 1);
   const notice = initialNotice && game.history.length === restoredLength.current ? initialNotice : null;
+  // The game a refused link left alone is the one it is about: once it moves on, so does this.
+  const linkNotice = linkProblem && linkProblem.at === game.history ? linkProblem.text : null;
   // And a game heading for the same loss says so before it happens: what is
   // saved past this is written but never replayed back.
   const pastReload = game.history.length - 1 > MAX_SAVED_ACTIONS;
@@ -467,13 +474,13 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice, launch
         />
       ) : null}
       <View style={[styles.hintRow, replaying && { display: 'none' }]}>
-        <Text style={[styles.hint, game.error || notice || pastReload ? { color: colors.danger } : null]} numberOfLines={3}>
+        <Text style={[styles.hint, game.error || linkNotice || notice || pastReload ? { color: colors.danger } : null]} numberOfLines={3}>
           {game.error ??
             (saveFailed
               ? 'This game is too big to save; it will be lost when the app closes.'
               : pastReload
                 ? `This game is past the ${MAX_SAVED_ACTIONS} moves the app can reload; reopening it comes back at move ${MAX_SAVED_ACTIONS}.`
-                : notice ?? hint)}
+                : linkNotice ?? notice ?? hint)}
         </Text>
         {puzzle && selection.kind === 'none' && humanTurn && state.status === 'playing' ? (
           <Button label={showHint ? 'Brief' : 'Hint'} small onPress={() => setShowHint((h) => !h)} />

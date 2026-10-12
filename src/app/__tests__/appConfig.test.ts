@@ -6,6 +6,15 @@
  * — and the only place either shows up is a prebuild, which no other suite
  * runs. So app.json states every key this file pins, even at its default,
  * and the file and the test say the same thing.
+ *
+ * The config plugins run in Node, at prebuild, and resolve their packages the
+ * way Node does: React Native's test environment offers only `require` and
+ * `react-native` as export conditions, which sends xcode's `uuid` (11, whose
+ * map names `node`, `browser` and `default`) to its ES-module browser build.
+ * So this file adds `node` to the two.
+ *
+ * @jest-environment node
+ * @jest-environment-options {"customExportConditions": ["node", "require", "react-native"]}
  */
 import { execFileSync } from 'child_process';
 import fs from 'fs';

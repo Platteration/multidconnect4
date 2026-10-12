@@ -48,6 +48,11 @@ describe('game codes', () => {
     const tampered = bad.replace(/.$/, 'A');
     expect(() => decodeGame(tampered)).toThrow();
   });
+
+  it('rejects malformed actions before the engine sees them', () => {
+    const payload = { v: 1, r: {}, m: 'local', a: [{ type: 'drop', timeline: 0, col: '0' }] };
+    expect(() => decodeGame(`5DC4.${encode(JSON.stringify(payload))}`)).toThrow(/invalid move/);
+  });
 });
 
 describe('hostile game codes', () => {
@@ -108,6 +113,14 @@ describe('hostile game codes', () => {
   it('reads rules as rules, whatever the code says they are', () => {
     const code = codeFor({ v: 1, r: 'popOut', m: 'local', a: [drop(0)] });
     expect(decodeGame(code).history[0]?.rules).toEqual({ popOut: false, flip: false, strictPresent: false });
+  });
+
+  it('turns a rule on only for true, not for anything that merely looks like it', () => {
+    // This app writes booleans; a 1, a "yes" or an object is nobody's choice of rule.
+    const code = codeFor({ v: 1, r: { popOut: 1, flip: 'yes', strictPresent: {} }, m: 'local', a: [drop(0)] });
+    expect(decodeGame(code).history[0]?.rules).toEqual({ popOut: false, flip: false, strictPresent: false });
+    const on = codeFor({ v: 1, r: { popOut: true, flip: true, strictPresent: true }, m: 'local', a: [drop(0)] });
+    expect(decodeGame(on).history[0]?.rules).toEqual({ popOut: true, flip: true, strictPresent: true });
   });
 
   it('refuses a code with more actions than a game could have', () => {

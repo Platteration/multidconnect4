@@ -209,7 +209,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard, red
                 key={turn}
                 style={[
                   styles.turnLabel,
-                  { left: (turn + 1) * SLOT, width: SLOT, color: colors.players[playerToMoveAt(turn)] },
+                  { left: (turn + 1) * SLOT, width: SLOT, color: colors.playerAccent[playerToMoveAt(turn)] },
                 ]}
               >
                 t{turn}
@@ -236,7 +236,7 @@ export function MultiverseMap({ state, focus, targets, origin, onPressBoard, red
           return (
             <View key={tl.id} style={[styles.timelineRow, { width, top: HEADER + tl.id * ROW }]}>
               <View style={[styles.label, { left: tl.startTurn * SLOT, borderColor: labelColor }]}>
-                <Text style={[styles.labelText, { color: labelColor }]}>T{tl.id + 1}</Text>
+                <Text style={[styles.labelText, { color: tl.createdBy === null ? colors.textMuted : colors.playerAccent[tl.createdBy] }]}>T{tl.id + 1}</Text>
                 {tl.branchedFrom ? (
                   <Text style={styles.labelSub}>
                     ↰ T{tl.branchedFrom.timeline + 1} t{tl.branchedFrom.turn}
@@ -319,7 +319,6 @@ const makeStyles = (colors: Theme) =>
     fontSize: 10,
     fontWeight: '700',
     textAlign: 'center',
-    opacity: 0.85,
   },
   timelineRow: { position: 'absolute', left: 0, height: ROW },
   label: {

@@ -17,6 +17,7 @@
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { KEYS } from '../../app/persist';
 import { toSavedGame } from '../../app/savedGame';
+import { encode } from '../../app/base64';
 import { encodeGame } from '../../app/share';
 import { Action, GameState, applyAction, newGame } from '../../engine';
 
@@ -58,6 +59,10 @@ const play = (...cols: number[]): GameState[] => cols.map(drop).reduce((h, a) =>
 const LINK = `multidconnect4://?code=${encodeURIComponent(encodeGame(play(3, 3, 2), { mode: 'local' }))}`;
 /** Another launch's link, whose game has five discs. */
 const OTHER_LINK = `multidconnect4://?code=${encodeURIComponent(encodeGame(play(0, 1, 2, 4, 5), { mode: 'local' }))}`;
+/** A link whose code reads but whose one move is not a move: a column given as a string. */
+const BAD_LINK = `multidconnect4://?code=${encodeURIComponent(`5DC4.${encode(JSON.stringify({ v: 1, r: {}, m: 'local', a: [{ type: 'drop', timeline: 0, col: '0' }] }))}`)}`;
+/** What the screen says about BAD_LINK, reason and all. */
+const BAD_LINK_NOTICE = 'Could not load the shared game. That code contains an invalid move, one that is not legal in any game.';
 
 /** The discs on the big board, read off the cells' labels. */
 const discs = (tree: ReactTestRenderer): number =>
@@ -86,7 +91,7 @@ function button(tree: ReactTestRenderer, label: string): ReactTestInstance {
  * what one case's run remembered is not the next case's. React, the renderer,
  * the app and the mocked storage and Linking all come from that one registry.
  */
-async function launch(saved: GameState[] | null) {
+async function launch(saved: GameState[] | null, link: string = LINK) {
   // (jest.isolateModules is not enough here: React Native's components come
   // out of it holding a React other than the renderer's.)
   jest.resetModules();
@@ -99,7 +104,7 @@ async function launch(saved: GameState[] | null) {
   await storage.setItem(KEYS.settings, JSON.stringify({ welcomed: true }));
   if (saved) await storage.setItem(KEYS.game, JSON.stringify(toSavedGame(saved, { mode: 'local' })));
   // The platform reports the launch link on every call, for the whole run.
-  jest.mocked(Linking.getInitialURL).mockResolvedValue(LINK);
+  jest.mocked(Linking.getInitialURL).mockResolvedValue(link);
 
   /** Storage reads, the link's promise and the autosave's 250 ms timer, all settled. */
   const settle = () =>
@@ -114,6 +119,13 @@ async function launch(saved: GameState[] | null) {
   });
   await settle();
   const press = (label: string) => act(async () => (button(tree, label).props.onPress as () => void)());
+  /** A press on the big board's cell with this label: a drop into its column. */
+  const pressCell = async (label: string) => {
+    const cell = tree.root.findAll((node) => node.props.accessibilityLabel === label && typeof node.props.onPress === 'function')[0];
+    if (!cell) throw new Error(`no cell labelled ${label}`);
+    await act(async () => (cell.props.onPress as () => void)());
+    await settle();
+  };
   const crash = async () => {
     mockFailure.on = true;
     await act(async () => tree.update(React.createElement(App)));
@@ -127,6 +139,7 @@ async function launch(saved: GameState[] | null) {
     storage,
     settle,
     press,
+    pressCell,
     unmount: () => act(async () => tree.unmount()),
     /** A render below the boundary fails, the player resets, and the tree is drawn again. */
     async crashAndReset(): Promise<void> {
@@ -240,6 +253,36 @@ describe('the link the app was launched with', () => {
     await app.press('Load the shared game');
     await app.settle();
     expect(discs(app.tree)).toBe(3);
+    await app.unmount();
+  });
+});
+
+describe('a link whose game will not load', () => {
+  it('says why, where the screen gives its notices, and leaves the board as it was', async () => {
+    // Nobody has moved, so the link is taken without asking - and refused.
+    const app = await launch(null, BAD_LINK);
+    expect(texts(app.tree)).not.toContain('Load the shared game?');
+    expect(texts(app.tree)).toContain(BAD_LINK_NOTICE);
+    expect(discs(app.tree)).toBe(0);
+    await app.unmount();
+  });
+
+  it('says why after the player chose to load it, and keeps their game', async () => {
+    const app = await launch(play(6), BAD_LINK);
+    expect(texts(app.tree)).toContain('Load the shared game?');
+    await app.press('Load the shared game');
+    await app.settle();
+    expect(texts(app.tree)).toContain(BAD_LINK_NOTICE);
+    expect(discs(app.tree)).toBe(1);
+    await app.unmount();
+  });
+
+  it('stops saying so once the game moves on', async () => {
+    const app = await launch(null, BAD_LINK);
+    expect(texts(app.tree)).toContain(BAD_LINK_NOTICE);
+    await app.pressCell('row 1 column 1 empty');
+    expect(discs(app.tree)).toBe(1);
+    expect(texts(app.tree)).not.toContain(BAD_LINK_NOTICE);
     await app.unmount();
   });
 });

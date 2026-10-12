@@ -123,10 +123,14 @@ export function isAction(v: unknown): v is Action {
   }
 }
 
-/** Rules as booleans, whatever the code actually carried. */
+/**
+ * Rules as booleans, whatever the code actually carried. A rule is on only when
+ * it is `true`: this app writes nothing else, and a `"no"` or a `1` is not a
+ * rule anybody chose.
+ */
 export function cleanRules(v: unknown): Rules {
   const r = (typeof v === 'object' && v ? v : {}) as Partial<Record<keyof Rules, unknown>>;
-  return { popOut: !!r.popOut, flip: !!r.flip, strictPresent: !!r.strictPresent };
+  return { popOut: r.popOut === true, flip: r.flip === true, strictPresent: r.strictPresent === true };
 }
 
 interface Payload {
@@ -200,10 +204,12 @@ export function decodeGame(code: string): { history: GameState[]; setup: GameSet
     throw new Error('That code is from a version this app cannot read.');
   }
   if (payload.a.length > MAX_ACTIONS) throw new Error('That code is too long to be a real game.');
+  // Every action is checked for shape before any is replayed, so a list that
+  // ends in nonsense is refused without paying for the replay in front of it.
+  if (!payload.a.every(isAction)) throw new Error('That code contains an invalid move, one that is not legal in any game.');
   let state = newGame(cleanRules(payload.r));
   const history: GameState[] = [state];
   for (const action of payload.a) {
-    if (!isAction(action)) throw new Error('That code contains a move that is not legal.');
     let next: GameState;
     try {
       next = applyAction(state, action);

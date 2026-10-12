@@ -58,7 +58,7 @@ const LIGHT: Base = {
   panelRaised: '#e9e2d3',
   border: '#b7b2a4',
   text: '#24333e',
-  textMuted: '#5b6b72',
+  textMuted: '#536269',
   travel: '#296f69',
   focus: '#24333e',
   success: '#37734d',
@@ -104,7 +104,7 @@ export const PIECE_SETS: readonly [PieceSet, ...PieceSet[]] = [
     name: 'Red & yellow',
     colors: ['#ff4d5a', '#ffd23f'],
     edge: ['#a5202b', '#a8841a'],
-    accent: { dark: ['#ff4d5a', '#ffd23f'], light: ['#d42a38', '#b58a00'] },
+    accent: { dark: ['#ff8fa3', '#ffd23f'], light: ['#b9242e', '#785b00'] },
     premium: false,
   },
   {
@@ -113,7 +113,7 @@ export const PIECE_SETS: readonly [PieceSet, ...PieceSet[]] = [
     name: 'Teal & coral',
     colors: ['#2dd4bf', '#fb7185'],
     edge: ['#0f766e', '#be123c'],
-    accent: { dark: ['#2dd4bf', '#fb7185'], light: ['#0f766e', '#be123c'] },
+    accent: { dark: ['#2dd4bf', '#ff92ab'], light: ['#0c6d65', '#be123c'] },
     premium: false,
   },
   {
@@ -122,7 +122,7 @@ export const PIECE_SETS: readonly [PieceSet, ...PieceSet[]] = [
     name: 'Ink & chalk',
     colors: ['#1b1b24', '#f4f4f8'],
     edge: ['#5b5b70', '#9a9aae'],
-    accent: { dark: ['#c8c8d8', '#f4f4f8'], light: ['#1b1b24', '#6c6c80'] },
+    accent: { dark: ['#c8c8d8', '#f4f4f8'], light: ['#1b1b24', '#5d5d6f'] },
     premium: true,
   },
   {
@@ -131,7 +131,7 @@ export const PIECE_SETS: readonly [PieceSet, ...PieceSet[]] = [
     name: 'Bubblegum & lime',
     colors: ['#ff6fb5', '#b6f24a'],
     edge: ['#b0306f', '#6b9a12'],
-    accent: { dark: ['#ff6fb5', '#b6f24a'], light: ['#c22d7f', '#5f8a0a'] },
+    accent: { dark: ['#ff87db', '#b6f24a'], light: ['#ae2671', '#486a01'] },
     premium: true,
   },
 ];

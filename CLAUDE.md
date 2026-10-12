@@ -7,7 +7,9 @@ parody built on Connect Four. See README.md for the rules and layout.
 
 - Engine lives in `src/engine` and must stay free of React/React Native imports.
 - Boards are immutable; every rule function returns a new value.
-- `npm test` runs the jest-expo unit tests, `npm run typecheck` runs tsc.
+- `npm test` runs the jest-expo unit tests, `npm run typecheck` runs tsc. Jest stays on 29:
+  jest-expo 57 and React Native's Jest preset are built on it, and Jest 30 beside them
+  (measured) installs both majors for the same two advisories.
 - Exact versioned Expo docs: https://docs.expo.dev/versions/v57.0.0/
 
 ## Native configuration
@@ -34,6 +36,12 @@ one to revisit if `STORE_ENABLED` is ever turned on. tsconfig lists `node`
 in `types` for that test's sake (`@types/node` is a devDependency at the pinned Node
 major). Install expo packages with `npm install <pkg>@<pin from
 node_modules/expo/bundledNativeModules.json>`; `npx expo install` needs Expo's API.
+`appConfig.test.ts` holds `expo-system-ui` and `expo-splash-screen` to those pins, so a move
+of `expo` itself moves them. `package.json`'s `overrides` take two transitive packages past
+advisories their parents' ranges cannot reach: `js-yaml` 4.3.2 under
+`@istanbuljs/load-nyc-config` (babel-jest's coverage loader, whose js-yaml 3 pulls in
+`sprintf-js`) and `uuid` 11.1.1 under `xcode` (from `@expo/config-plugins`);
+`docs/release.md` says when each can go.
 
 ## Settings
 
@@ -102,9 +110,14 @@ first; its tests run it against a stand-in exporter in a temporary folder for th
 `--host` (`github-pages`, `netlify`, `cloudflare`, `apache`, `nginx`, the names chesscheatser's
 build uses) keeps only the configuration that host reads, because a host serves any other as a
 plain file; a build for GitHub Pages, or for no host, also gets an empty `.nojekyll`, because
-Pages runs a branch deploy through Jekyll, which drops `_expo/`. The launch link is answered once
+Pages runs a branch deploy through Jekyll, which drops `_expo/`. `.github/workflows/pages.yml`
+builds with `--host github-pages --base /<repository>` after `npm ci`, the type check and the unit
+tests, and deploys on a push to `main` (which does not exist yet) or by hand; its shape is the
+conventions test's. The launch link is answered once
 per mount of `App` (`launchLink()` in `src/app/links.ts`, held above the error boundary), not once
-per JavaScript runtime, which on Android outlives an Activity started again from another link. On
+per JavaScript runtime, which on Android outlives an Activity started again from another link. A
+link whose game will not load says why in the hint line until the game moves on, not through
+`Alert.alert`, which react-native-web leaves empty. On
 the web the Vibration row is shown off, disabled and says why (`WEB_VIBRATION_HINT`), since
 `feedback.ts` never vibrates there. In a window wider than it is tall the left column is a
 `ScrollView`, whose own style must not lay out children (`justifyContent`, `alignItems`): both

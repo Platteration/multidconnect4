@@ -98,9 +98,12 @@ describe('a game arriving by link', () => {
     // A code left in the address bar is read again on every reload: loaded
     // over whatever was played since when the game is young, asked about
     // again when it is not. Accepting and declining both clear it, and the
-    // only path that loads a linked code is the one that clears it.
+    // only path that loads a linked code is the one that clears it - after
+    // noting why it would not load, if it would not, and whatever that was.
     const src = source('GameScreen.tsx');
-    expect(src).toMatch(/const acceptLinkedCode = \(code: string\) => \{\s*loadCode\(code\);\s*clearCodeFromUrl\(\);\s*\};/);
+    expect(src).toMatch(
+      /const acceptLinkedCode = \(code: string\) => \{\s*const problem = loadCode\(code\);\s*setLinkProblem\([^;]*\);\s*clearCodeFromUrl\(\);\s*\};/,
+    );
     expect(src).toMatch(/else acceptLinkedCode\(code\);/);
     expect(src).toMatch(/if \(code\) acceptLinkedCode\(code\);/);
     expect(src).toMatch(/onCancel=\{\(\) => \{\s*setLinkedCode\(null\);\s*clearCodeFromUrl\(\);\s*\}\}/);
