@@ -166,18 +166,49 @@ describe('the response headers', () => {
     for (const f of published) expect([f, fromHeadersFile(`/${f}`)['Cache-Control']]).toEqual([f, CACHE.revalidate]);
   });
 
-  it('set every header in the nginx server block, never in a location, which would drop the rest', () => {
-    // A location's body runs to the brace that closes it, past any block inside (`types { }`).
-    const locations: string[] = [];
-    for (const start of NGINX.matchAll(/^\s*location [^{]*\{/gm)) {
+  /** Each nginx location: what it matches, and its body, which runs to the brace that closes it, past any block inside (`types { }`). */
+  const nginxLocations = (): { match: string; body: string }[] => {
+    const locations: { match: string; body: string }[] = [];
+    for (const start of NGINX.matchAll(/^\s*location ([^{]*)\{/gm)) {
       let depth = 1;
       let i = start.index! + start[0].length;
       const from = i;
       for (; i < NGINX.length && depth > 0; i += 1) depth += NGINX[i] === '{' ? 1 : NGINX[i] === '}' ? -1 : 0;
-      locations.push(NGINX.slice(from, i - 1));
+      locations.push({ match: start[1]!.trim(), body: NGINX.slice(from, i - 1) });
     }
-    expect(locations.length).toBeGreaterThanOrEqual(5);
-    for (const body of locations) expect(body).not.toMatch(/add_header/);
+    return locations;
+  };
+
+  it("set every header in the nginx server block, never in a location but the API's, which would drop the rest", () => {
+    const locations = nginxLocations();
+    expect(locations.length).toBeGreaterThanOrEqual(6);
+    for (const { match, body } of locations.filter((l) => l.match !== '^~ /api/')) expect([match, /add_header/.test(body)]).toEqual([match, false]);
+  });
+
+  it("send the API to the kit on loopback, under its own headers and the server block's HSTS alone", () => {
+    // server/kit sets every header of its own answers (README, "Sign-in and the shop"). A location
+    // with one add_header inherits none of the server block's, which is the point here: inherited,
+    // they would go out beside the kit's, and a browser reads the last of two Referrer-Policy
+    // values. So the one header it adds is the server block's Strict-Transport-Security, as is.
+    const api = nginxLocations().filter((l) => l.match === '^~ /api/');
+    expect(api).toHaveLength(1);
+    const lines = api[0]!.body
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#'));
+    const hsts = /^\s*(add_header Strict-Transport-Security "[^"]*" always;)$/m.exec(NGINX.slice(NGINX.lastIndexOf('add_header Content-Security-Policy') - 2));
+    expect(hsts).not.toBeNull();
+    expect(lines).toEqual([
+      // No URI after the address: the path reaches the API as the browser asked for it.
+      'proxy_pass http://127.0.0.1:8788;',
+      'proxy_http_version 1.1;',
+      'proxy_set_header Connection "";',
+      'client_max_body_size 1m;',
+      'proxy_read_timeout 30s;',
+      hsts![1],
+    ]);
+    // ^~ wins over every regular expression, so nothing under /api/ is served from the folder.
+    expect(NGINX).toMatch(/^\s*location \^~ \/api\/ \{$/m);
   });
 
   it('turn HTTP/2 on in the form every nginx reads', () => {
@@ -228,7 +259,7 @@ describe('the Content-Security-Policy', () => {
       `style-src 'self' 'sha256-${createHash('sha256').update('').digest('base64')}'`,
       "img-src 'self'",
       "media-src 'self'",
-      "connect-src 'none'",
+      "connect-src 'self'",
       "base-uri 'none'",
       "form-action 'none'",
       "object-src 'none'",
@@ -254,7 +285,7 @@ describe('the Content-Security-Policy', () => {
 
 describe("what the hosts refuse: the files in the built folder that are not part of the site", () => {
   /** In a build for any host: the hosts' configurations, .nojekyll and the exporter's manifest. */
-  const REFUSED = ['/_headers', '/_redirects', '/.htaccess', '/.nojekyll', '/metadata.json'];
+  const REFUSED = ['/_headers', '/_redirects', '/.htaccess', '/_routes.json', '/.nojekyll', '/metadata.json'];
   /**
    * A checkout's own files, which only nginx refuses: its rules are the server's and hold
    * whatever folder it serves. Apache and Netlify read theirs from the folder they publish, so
@@ -265,7 +296,7 @@ describe("what the hosts refuse: the files in the built folder that are not part
   /**
    * Every path a published folder can hold: public/ as the exporter copies it, what the exporter
    * writes beside it (the page, the favicon, the bundle, the sounds, and metadata.json, which only
-   * build-web.mjs removes) and the .nojekyll build-web.mjs writes.
+   * build-web.mjs removes) and the .nojekyll and _routes.json build-web.mjs writes.
    */
   const PUBLISHABLE = [
     ...publicFiles().map((f) => `/${f}`),
@@ -273,6 +304,7 @@ describe("what the hosts refuse: the files in the built folder that are not part
     '/favicon.ico',
     '/metadata.json',
     '/.nojekyll',
+    '/_routes.json',
     '/_expo/static/js/web/index-0123456789abcdef0123456789abcdef.js',
     '/assets/assets/sounds/tap.885ca5ad315cfc1729c3b2b1d8c41e98.wav',
   ];
@@ -485,24 +517,36 @@ describe('the build', () => {
   });
 
   it.each([
-    [null, ['.htaccess', '.nojekyll', '_headers', '_redirects']],
+    [null, ['.htaccess', '.nojekyll', '_headers', '_redirects', '_routes.json']],
     ['github-pages', ['.nojekyll']],
     ['netlify', ['_headers', '_redirects']],
-    ['cloudflare', ['_headers', '_redirects']],
+    ['cloudflare', ['_headers', '_redirects', '_routes.json']],
     ['apache', ['.htaccess']],
     ['nginx', []],
   ])('for --host %s, the site holds %j of the configurations and .nojekyll', (host, kept) => {
-    // A host serves as a plain file whatever it does not read: GitHub Pages all three
-    // configurations, Cloudflare Pages .htaccess. And GitHub Pages runs a site deployed from a
-    // branch through Jekyll, which drops every folder whose name starts with an underscore,
-    // _expo/ (the whole game) among them, unless the site holds .nojekyll; a build for no host
-    // in particular may be going there too.
+    // A host serves as a plain file whatever it does not read: GitHub Pages all four
+    // configurations, Cloudflare Pages .htaccess, Netlify _routes.json. And GitHub Pages runs a
+    // site deployed from a branch through Jekyll, which drops every folder whose name starts with
+    // an underscore, _expo/ (the whole game) among them, unless the site holds .nojekyll; a build
+    // for no host in particular may be going there too.
     const box = sandbox();
     expect(box.run(...(host ? ['--host', host] : []))).toEqual({ status: 0, stderr: '' });
     const out = path.join(box.repo, 'dist-web');
-    expect(['.htaccess', '.nojekyll', '_headers', '_redirects'].filter((f) => fs.existsSync(path.join(out, f)))).toEqual(kept);
+    expect(['.htaccess', '.nojekyll', '_headers', '_redirects', '_routes.json'].filter((f) => fs.existsSync(path.join(out, f)))).toEqual(kept);
     if (kept.includes('.nojekyll')) expect(fs.readFileSync(path.join(out, '.nojekyll'), 'utf8')).toBe('');
     for (const f of ['index.html', '404.html', 'guard.js', 'site.css', 'robots.txt', '.well-known/security.txt']) expect([f, fs.existsSync(path.join(out, f))]).toEqual([f, true]);
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  });
+
+  it.each([
+    [[], '/api/*'],
+    [['--base', '/multidconnect4'], '/multidconnect4/api/*'],
+  ])('with %j, has Cloudflare Pages run the API for %s and for nothing else', (args, route) => {
+    // functions/api/[[path]].js is the sign-in and shop API (server/kit). With no _routes.json
+    // every request to the site would invoke it, the bundle and the sounds included.
+    const box = sandbox();
+    expect(box.run(...args, '--host', 'cloudflare')).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(fs.readFileSync(path.join(box.repo, 'dist-web', '_routes.json'), 'utf8'))).toEqual({ version: 1, include: [route], exclude: [] });
     fs.rmSync(box.dir, { recursive: true, force: true });
   });
 

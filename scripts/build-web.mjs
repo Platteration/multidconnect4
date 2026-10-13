@@ -14,10 +14,13 @@
 //     serves the template too and the development server needs a WebSocket and HTML written
 //     from strings, both of which the policy refuses;
 //   - removes metadata.json, the exporter's manifest for EAS Update, which the site never loads;
+//   - writes _routes.json, which tells Cloudflare Pages to run the site's one Function
+//     (functions/api/[[path]].js, the sign-in and shop API of server/kit) for `<base>/api/*` and
+//     nothing else, so a static file never invokes it;
 //   - with --host (github-pages, netlify, cloudflare, apache or nginx), keeps only the
 //     configuration that host reads, since a host serves whatever it does not read as a plain
-//     file: GitHub Pages reads none and serves all three, Cloudflare Pages serves .htaccess.
-//     Without it all three stay. A build for GitHub Pages, and one for no host in
+//     file: GitHub Pages reads none and serves all four, Cloudflare Pages serves .htaccess.
+//     Without it all four stay. A build for GitHub Pages, and one for no host in
 //     particular, also gets an empty .nojekyll: GitHub Pages runs a site deployed from a branch
 //     through Jekyll, which leaves out every folder whose name starts with an underscore, and
 //     _expo/ is the whole game;
@@ -39,23 +42,36 @@ export const BASE = /^(\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+)+$/;
 export const OUT_FOLDERS = ['dist-web', 'dist', 'web-build'];
 
 /** Every file the site is made of besides the bundle, the sounds and the favicon. */
-export const SITE_FILES = ['index.html', '404.html', 'guard.js', 'site.css', 'robots.txt', '.well-known/security.txt', '_headers', '_redirects', '.htaccess'];
+export const SITE_FILES = ['index.html', '404.html', 'guard.js', 'site.css', 'robots.txt', '.well-known/security.txt', '_headers', '_redirects', '.htaccess', '_routes.json'];
 
-/** The hosts' configurations public/ carries; nginx's is deploy/nginx.conf, outside the site. */
-export const CONFIGS = ['_headers', '_redirects', '.htaccess'];
+/**
+ * The hosts' configurations: the three public/ carries, and _routes.json, which this script
+ * writes because it names the base path. nginx's is deploy/nginx.conf, outside the site.
+ */
+export const CONFIGS = ['_headers', '_redirects', '.htaccess', '_routes.json'];
 
 /**
  * What a build for each host keeps of CONFIGS, and whether it gets .nojekyll. Cloudflare Pages
- * reads _headers and _redirects (and skips the 404 rules, which it does not support); nginx and
+ * reads _headers, _redirects (and skips the 404 rules, which it does not support) and
+ * _routes.json, and serves none of the three (Wrangler leaves them out of the upload); nginx and
  * GitHub Pages read none of them.
  */
 export const HOSTS = {
   'github-pages': { keep: [], nojekyll: true },
   netlify: { keep: ['_headers', '_redirects'], nojekyll: false },
-  cloudflare: { keep: ['_headers', '_redirects'], nojekyll: false },
+  cloudflare: { keep: ['_headers', '_redirects', '_routes.json'], nojekyll: false },
   apache: { keep: ['.htaccess'], nojekyll: false },
   nginx: { keep: [], nojekyll: false },
 };
+
+/**
+ * Cloudflare Pages' _routes.json for a site under `base` ('' at the root of its domain): the
+ * Function runs for the API's paths alone. Cloudflare reads the file from the published folder
+ * and never serves it.
+ */
+export function routesFor(base) {
+  return `${JSON.stringify({ version: 1, include: [`${base}/api/*`], exclude: [] })}\n`;
+}
 
 /** A built site in `out` finished for `host`, or for any host when it is null. */
 export function finishForHost(out, host) {
@@ -150,6 +166,7 @@ function build({ base, out: outArg, host }) {
   if (run.status !== 0) fail(`expo export exited with ${run.status}`);
 
   fs.rmSync(path.join(out, 'metadata.json'), { force: true });
+  fs.writeFileSync(path.join(out, '_routes.json'), routesFor(base));
   for (const file of ['404.html', '.htaccess']) {
     const target = path.join(out, file);
     fs.writeFileSync(target, withBase(file, fs.readFileSync(target, 'utf8'), base));

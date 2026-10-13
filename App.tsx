@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AccountProvider } from './src/app/account';
 import { EntitlementsProvider } from './src/app/entitlements';
 import { launchLink, LaunchLink } from './src/app/links';
 import { KEYS, loadJson, removeKey } from './src/app/persist';
@@ -67,21 +68,23 @@ export default function App() {
     <SettingsProvider>
       <ThemeProvider>
         <ProgressProvider>
-          <EntitlementsProvider>
-            <StatsProvider>
-              <SafeAreaProvider>
-                <ErrorBoundary
-                  key={generation}
-                  onReset={() => {
-                    void removeKey(KEYS.game);
-                    setGeneration((g) => g + 1);
-                  }}
-                >
-                  <Root launch={launch} />
-                </ErrorBoundary>
-              </SafeAreaProvider>
-            </StatsProvider>
-          </EntitlementsProvider>
+          <AccountProvider>
+            <EntitlementsProvider>
+              <StatsProvider>
+                <SafeAreaProvider>
+                  <ErrorBoundary
+                    key={generation}
+                    onReset={() => {
+                      void removeKey(KEYS.game);
+                      setGeneration((g) => g + 1);
+                    }}
+                  >
+                    <Root launch={launch} />
+                  </ErrorBoundary>
+                </SafeAreaProvider>
+              </StatsProvider>
+            </EntitlementsProvider>
+          </AccountProvider>
         </ProgressProvider>
       </ThemeProvider>
     </SettingsProvider>

@@ -28,6 +28,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import debugInternetPlugin from '../../../plugins/withDebugInternet';
+import { accountClient } from '../accountClient';
+import { NO_LANDING } from '../accountModel';
 import { KEYS } from '../persist';
 import { DEFAULT_SETTINGS } from '../settings';
 import { buildTheme } from '../../ui/theme';
@@ -97,6 +99,15 @@ const resource = (file: 'strings' | 'colors', name: string): string | undefined 
  */
 const NETWORK_PRIMITIVE =
   /\bfetch\(|axios|XMLHttpRequest|WebSocket|EventSource|sendBeacon|\bnew Request\(|downloadAsync|uploadAsync|createDownloadResumable|openBrowserAsync|expo-network|expo-updates|expo-auth-session|react-native-webview|@react-native-community\/netinfo/;
+/**
+ * The website's sign-in and shop client (README, "Sign-in and the shop"): the one module of the
+ * app that talks to a network, and to the site's own api/ alone. Metro bundles a `.web.ts` file
+ * into the web build only; a native build resolves its twin, accountClient.ts, which the tests
+ * below hold inert. Named one by one, so a second `.web` module is scanned like any other file
+ * and a socket in it is still a finding.
+ */
+const WEB_ONLY = [path.join('src', 'app', 'accountClient.web.ts')];
+
 /** Packages that cannot be in this app for any reason but talking to a network. */
 const NETWORK_PACKAGES = [
   'expo-network',
@@ -315,16 +326,64 @@ describe('what leaves the device', () => {
     // accounted for, so the manifest walk below would not notice it either -
     // downloads over HTTP. See NETWORK_PRIMITIVE for the whole list and for
     // what it deliberately does not catch.
+    //
+    // The website's sign-in and shop client is the one file set aside (WEB_ONLY): a phone never
+    // gets it, and the tests after this one hold what it may reach.
     const network = new RegExp(`${NETWORK_PRIMITIVE.source}|openURL|https?://`);
     const stripped = sourceFiles().map(([file, text]) => [file, text.replace(/\/\*[\s\S]*?\*\//g, '')] as const);
     expect(stripped.length).toBeGreaterThan(10);
-    const hits = stripped.filter(([, code]) => network.test(code)).map(([file]) => file);
+    for (const file of WEB_ONLY) expect(stripped.map(([f]) => f)).toContain(file);
+    const hits = stripped.filter(([file, code]) => !WEB_ONLY.includes(file) && network.test(code)).map(([file]) => file);
     const about = path.join('src', 'ui', 'SettingsModal.tsx');
     expect(hits).toEqual([about]);
     const source = stripped.find(([file]) => file === about)?.[1] ?? '';
     expect(source.match(/['"`]https?:[^'"`]*['"`]/g)).toEqual(["'https://github.com/Platteration/multidconnect4'"]);
     expect(source.match(/openURL\([^)]*\)/g)).toEqual(['openURL(SOURCE_URL)']);
     expect(NETWORK_PRIMITIVE.test(source)).toBe(false);
+  });
+
+  it("keeps the website's client to the site's own api/, and Stripe's Checkout as the one place it sends the page", () => {
+    // connect-src 'self' is what the browser holds it to; this is what the source holds it to.
+    const [file] = WEB_ONLY;
+    const code = fs.readFileSync(path.join(root, file!), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    // Every request is a fetch of an address apiUrl() builds beside the page...
+    const fetches = code.match(/\bfetch\([^)]*\)?/g) ?? [];
+    expect(fetches.length).toBe(2);
+    for (const call of fetches) expect(call).toMatch(/^fetch\(apiUrl\(route\)/);
+    expect(code).toMatch(/return new URL\(`api\/\$\{route\}`, page\)\.href;/);
+    // ...and nothing else that opens a socket is there.
+    expect(NETWORK_PRIMITIVE.test(code.replace(/\bfetch\(apiUrl\(/g, ''))).toBe(false);
+    // The one outside address it names is Checkout's, where Buy sends the page and nowhere else.
+    expect(code.match(/['"`]https?:[^'"`]*['"`]/g)).toEqual(["'https://checkout.stripe.com'"]);
+    expect(code).toMatch(/return typeof value === 'string' && value\.startsWith\(`\$\{CHECKOUT_ORIGIN\}\/`\);/);
+    // The page leaves for two places: the sign-in start under api/, and a Checkout address once
+    // isCheckoutUrl has passed it.
+    expect(code.match(/location\.assign\(\w+/g)).toEqual(['location.assign(apiUrl', 'location.assign(url']);
+    expect(code).toMatch(/if \(!isCheckoutUrl\(url\)\) return 'failed';\s*window\.location\.assign\(url\);/);
+  });
+
+  it('gives a phone the inert twin, which answers "not configured" and opens nothing', async () => {
+    // jest-expo resolves as a native Metro build does (ios, then android, native, then no
+    // platform), so this import is what a phone's bundle holds.
+    const fetch = jest.fn();
+    const saved = globalThis.fetch;
+    globalThis.fetch = fetch;
+    try {
+      expect(accountClient.web).toBe(false);
+      expect(await accountClient.config()).toBeNull();
+      expect(await accountClient.me()).toBeNull();
+      expect(await accountClient.signOut()).toBe(false);
+      expect(await accountClient.deleteAccount()).toBe(false);
+      expect(await accountClient.checkout('supporter')).toBe('unavailable');
+      expect(accountClient.takeLanding()).toBe(NO_LANDING);
+      accountClient.signIn();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = saved;
+    }
+    const twin = fs.readFileSync(path.join(root, 'src', 'app', 'accountClient.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(twin).not.toMatch(new RegExp(`${NETWORK_PRIMITIVE.source}|openURL|https?://|window|location`));
+    expect(require.resolve('../accountClient')).toBe(path.join(root, 'src', 'app', 'accountClient.ts'));
   });
 
   it('does not install a package that exists to talk to a network', () => {

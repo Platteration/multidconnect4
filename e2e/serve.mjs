@@ -1,8 +1,11 @@
 // The test host for the built site: serves it under a sub-path, the way a GitHub Pages project
 // site is served, and answers the way Netlify reads the site's own _headers and _redirects, so
 // the browser suite runs the game under the headers as that file writes them; or the way GitHub
-// Pages does, which reads neither. Test tooling only; it is never published, and it listens on
-// loopback alone.
+// Pages does, which reads neither. Given an `api`, it also runs the site's API for `<base>/api/*`
+// the way Cloudflare Pages runs functions/api/[[path]].js (_routes.json): before the static
+// files and the _redirects rules, and with none of _headers' headers, which Cloudflare does not
+// apply to a Function's response (the API sends its own). Test tooling only; it is never
+// published, and it listens on loopback alone.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -82,8 +85,9 @@ export function headersFor(rules, p) {
  * is whose reading of the folder this is: 'netlify' sends what _headers gives each path and
  * answers _redirects' 404 rules; 'github-pages' reads neither file, sends none of those headers
  * and serves every file the folder holds, either of those included, as GitHub Pages does.
+ * `api`, a node:http request listener, answers everything under `<base>/api/` (`apiRequests`).
  */
-export function serveSite({ root, base, host = 'netlify' }) {
+export function serveSite({ root, base, host = 'netlify', api = null }) {
   if (host !== 'netlify' && host !== 'github-pages') throw new Error(`serveSite: no model of ${host}`);
   const site = path.resolve(root);
   const netlify = host === 'netlify';
@@ -92,6 +96,7 @@ export function serveSite({ root, base, host = 'netlify' }) {
   const outside = [];
   const twice = [];
   const requests = [];
+  const apiRequests = [];
 
   const send = (res, sitePath, status, file) => {
     const { headers, twice: doubled } = headersFor(headerRules, sitePath);
@@ -113,6 +118,11 @@ export function serveSite({ root, base, host = 'netlify' }) {
     if (!pathname.startsWith(`${base}/`)) {
       outside.push(pathname);
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('outside the site');
+      return;
+    }
+    if (api && pathname.startsWith(`${base}/api/`)) {
+      apiRequests.push(`${req.method} ${pathname}`);
+      api(req, res);
       return;
     }
     let sitePath;
@@ -138,7 +148,7 @@ export function serveSite({ root, base, host = 'netlify' }) {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
-      resolve({ server, origin: `http://127.0.0.1:${port}`, url: `http://127.0.0.1:${port}${base}/`, outside, twice, requests });
+      resolve({ server, origin: `http://127.0.0.1:${port}`, url: `http://127.0.0.1:${port}${base}/`, outside, twice, requests, apiRequests, hasApi: api !== null });
     });
   });
 }

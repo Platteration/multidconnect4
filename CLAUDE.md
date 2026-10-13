@@ -7,7 +7,8 @@ parody built on Connect Four. See README.md for the rules and layout.
 
 - Engine lives in `src/engine` and must stay free of React/React Native imports.
 - Boards are immutable; every rule function returns a new value.
-- `npm test` runs the jest-expo unit tests, `npm run typecheck` runs tsc. Jest stays on 29:
+- `npm test` runs the API's tests with `node --test` (`server/kit/selftest.mjs` and
+  `server/api.test.mjs`), then the jest-expo unit tests; `npm run typecheck` runs tsc. Jest stays on 29:
   jest-expo 57 and React Native's Jest preset are built on it, and Jest 30 beside them
   (measured) installs both majors for the same two advisories.
 - Exact versioned Expo docs: https://docs.expo.dev/versions/v57.0.0/
@@ -22,9 +23,14 @@ test say the same thing. The splash screen is configured only through the
 `expo-splash-screen` plugin entry — SDK 57 ignores a top-level `splash` block — and
 `userInterfaceStyle` only works on Android because `expo-system-ui` is installed (its
 plugin writes the string resource, its activity listener reads it). The app has no
-network code (deep links in via `Linking`, game codes out via `Share.share`/clipboard),
-so `android.blockedPermissions` removes INTERNET, the storage/media reads and the
-template's `SYSTEM_ALERT_WINDOW` from the shipped manifest, and
+network code (deep links in via `Linking`, game codes out via `Share.share`/clipboard):
+the one module that makes a request is the website's account client,
+`src/app/accountClient.web.ts`, which Metro bundles into the web build alone, and a native
+build resolves its twin `accountClient.ts`, which answers "not configured" and opens
+nothing (`appConfig.test.ts` exempts exactly that `.web` file from its scan, holds it to the
+site's own `api/` and Checkout's address, and pins the twin as the inert one jest-expo
+resolves, as Metro does for a phone). So `android.blockedPermissions` removes INTERNET,
+the storage/media reads and the template's `SYSTEM_ALERT_WINDOW` from the shipped manifest, and
 `plugins/withDebugInternet.js` (drawdraw's plugin, verbatim but for the one sentence that
 described that app) adds INTERNET back to the debug source set alone so a
 development build can still load its bundle; the test scans every AndroidManifest.xml
@@ -95,7 +101,8 @@ policy was measured by playing the game in Chromium under it, not copied: `style
 the hash of the empty string and no `'unsafe-inline'`, because react-native-web creates an empty
 `<style>` and fills it through `insertRule`; `img-src 'self'` is the favicon (only the full
 Chromium fetches it, which is why the suite launches `channel: 'chromium'`), `media-src 'self'`
-the sounds, `connect-src 'none'` the absence of network code, and Trusted Types are enforced.
+the sounds, `connect-src 'self'` the site's own `api/` (sign-in and the shop, below; with
+`'none'` the page's `GET api/config` is refused, measured), and Trusted Types are enforced.
 `npm run test:e2e` builds the site for `/multidconnect4/` (`app.config.js` reads `WEB_BASE_URL`
 into `experiments.baseUrl`; `build-web.mjs` also prefixes `404.html` and `.htaccess`) and
 `e2e/run.mjs` plays it under `e2e/serve.mjs`, which answers as Netlify reads `_headers` and
@@ -109,8 +116,9 @@ rejects and fails a script load from elsewhere before the first draw to hold it 
 first; its tests run it against a stand-in exporter in a temporary folder for that reason.
 `--host` (`github-pages`, `netlify`, `cloudflare`, `apache`, `nginx`, the names chesscheatser's
 build uses) keeps only the configuration that host reads, because a host serves any other as a
-plain file; a build for GitHub Pages, or for no host, also gets an empty `.nojekyll`, because
-Pages runs a branch deploy through Jekyll, which drops `_expo/`. `.github/workflows/pages.yml`
+plain file (`build-web.mjs` writes Cloudflare Pages' `_routes.json` itself, `<base>/api/*`, and
+the three other hosts' configurations refuse it); a build for GitHub Pages, or for no host, also
+gets an empty `.nojekyll`, because Pages runs a branch deploy through Jekyll, which drops `_expo/`. `.github/workflows/pages.yml`
 builds with `--host github-pages --base /<repository>` after `npm ci`, the type check and the unit
 tests, and deploys on a push to `main` (which does not exist yet) or by hand; its shape is the
 conventions test's. The launch link is answered once
@@ -122,6 +130,39 @@ the web the Vibration row is shown off, disabled and says why (`WEB_VIBRATION_HI
 `feedback.ts` never vibrates there. In a window wider than it is tall the left column is a
 `ScrollView`, whose own style must not lay out children (`justifyContent`, `alignItems`): both
 React Native and react-native-web throw on it in development.
+
+## Sign-in and the shop (website)
+
+The website signs visitors in with Google and sells the Supporter pack through Stripe Checkout,
+through the shared kit at `server/kit/` (the charter's location, the same bytes in every app
+that carries it: never edit this copy; what it should do differently is a request against the
+canonical one). `server/catalogue.js` is this app's catalogue (one product, `supporter`,
+one-time, granting `supporter`; price `STRIPE_PRICE_SUPPORTER`), `functions/api/[[path]].js`
+the kit's three-line Cloudflare Pages entry, `server/start.mjs` the Node one behind
+`deploy/nginx.conf`'s `location ^~ /api/` (the one location with an `add_header`, the server
+block's HSTS line, which `website.test.ts` holds), and `server/package.json` only
+`{"type":"module"}`, so Node reads those files as ES modules without a warning. The kit
+lints and type-checks under this repository's own configuration unchanged (its `// @ts-check`
+files are in tsc's program through `allowJs`), and `npm test` runs its self-test and
+`server/api.test.mjs`, which drives the catalogue through both entries with
+`server/fakes.mjs`'s Google and Stripe handed to the kit as its `fetch`; nothing points the kit
+at another host. Everything is off until the owner sets the variables (README, "Sign-in and
+the shop"; `server/kit/README.md` has the checklist): with none, and on every static host,
+`api/config` is a 404 or says nothing is on, and the page draws nothing and asks nothing more.
+On the client, `src/app/accountModel.ts` reads `api/config` and `api/me` field by field and
+holds the words (the charter's, the same in every app) and the two privacy sentences the About
+card picks between; `accountClient.web.ts` is the only code that makes a request (relative to
+the page, so a sub-path site asks its own `api/`) and navigates only to `api/auth/google/start`
+and to an address that starts `https://checkout.stripe.com/`; `account.tsx` is the state the
+screens draw (`AccountNotice`, the Account section of `SettingsModal`, the shop in
+`ExtrasModal`, Delete account confirmed inside the sheet's own Modal like Reset). On the web the
+store is on exactly when `api/config` sells the pack, and then `EntitlementsProvider` reads
+what is owned from `api/me` alone, never from `multidconnect4.entitlements.v1`; the phone apps
+keep `STORE_ENABLED = false` and their own store seam. The browser suite plays the whole flow
+under the site's policy (`e2e/serve.mjs` runs the kit for `<base>/api/*` as Cloudflare does);
+Playwright does not route a request a redirect makes, so Google's consent is answered where the
+kit's redirect to it is made, from the kit's own answer, and a request that reaches
+accounts.google.com fails the suite.
 
 ## Conventions
 
