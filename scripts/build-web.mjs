@@ -20,6 +20,9 @@
 //   - with --host (github-pages, netlify, cloudflare, apache or nginx), keeps only the
 //     configuration that host reads, since a host serves whatever it does not read as a plain
 //     file: GitHub Pages reads none and serves all four, Cloudflare Pages serves .htaccess.
+//     `--host cloudflare` with --base is refused: Pages serves a project at the root of its
+//     domain, and the API's Function, functions/api/[[path]].js, answers /api/* alone, so a site
+//     under a sub-path there would run with no sign-in and no shop and nothing said.
 //     Without it all four stay. A build for GitHub Pages, and one for no host in
 //     particular, also gets an empty .nojekyll: GitHub Pages runs a site deployed from a branch
 //     through Jekyll, which leaves out every folder whose name starts with an underscore, and
@@ -144,6 +147,9 @@ function parseArgs(argv) {
 function build({ base, out: outArg, host }) {
   if (base && !BASE.test(base)) fail(`--base must be a path such as /multidconnect4, not ${JSON.stringify(base)}`);
   if (host !== null && !Object.hasOwn(HOSTS, host)) fail(`--host is one of ${Object.keys(HOSTS).join(', ')}, not ${JSON.stringify(host)}`);
+  if (host === 'cloudflare' && base) {
+    fail(`--host cloudflare serves the site at the root of its domain, where functions/api/[[path]].js answers /api/*; not under ${JSON.stringify(base)}`);
+  }
   const out = path.resolve(root, outArg);
   // The exporter deletes its output folder before it writes. Inside the checkout that is one of
   // the ignored build folders and nothing else (`--out src` would take the source with it);

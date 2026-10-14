@@ -11,6 +11,11 @@ parody built on Connect Four. See README.md for the rules and layout.
   `server/api.test.mjs`), then the jest-expo unit tests; `npm run typecheck` runs tsc. Jest stays on 29:
   jest-expo 57 and React Native's Jest preset are built on it, and Jest 30 beside them
   (measured) installs both majors for the same two advisories.
+- CI's check job runs on `ubuntu-24.04`, not `ubuntu-latest`, which becomes Ubuntu 26.04 on
+  2026-10-19: Playwright 1.56.1, the lockfile's, has no Chromium build for 26.04.
+  `src/app/__tests__/ci.test.ts` asks that Playwright's own CLI (`install --dry-run`, told the
+  platform) whether it has a build for the release the job names, so raising Playwright and
+  then the runner is one change.
 - Exact versioned Expo docs: https://docs.expo.dev/versions/v57.0.0/
 
 ## Native configuration
@@ -117,7 +122,9 @@ first; its tests run it against a stand-in exporter in a temporary folder for th
 `--host` (`github-pages`, `netlify`, `cloudflare`, `apache`, `nginx`, the names chesscheatser's
 build uses) keeps only the configuration that host reads, because a host serves any other as a
 plain file (`build-web.mjs` writes Cloudflare Pages' `_routes.json` itself, `<base>/api/*`, and
-the three other hosts' configurations refuse it); a build for GitHub Pages, or for no host, also
+the three other hosts' configurations refuse it; `--host cloudflare` with `--base` is refused, since
+Pages serves a project at the root of its domain and `functions/api/[[path]].js` answers `/api/*`
+alone); a build for GitHub Pages, or for no host, also
 gets an empty `.nojekyll`, because Pages runs a branch deploy through Jekyll, which drops `_expo/`. `.github/workflows/pages.yml`
 builds with `--host github-pages --base /<repository>` after `npm ci`, the type check and the unit
 tests, and deploys on a push to `main` (which does not exist yet) or by hand; its shape is the
@@ -158,7 +165,24 @@ screens draw (`AccountNotice`, the Account section of `SettingsModal`, the shop 
 `ExtrasModal`, Delete account confirmed inside the sheet's own Modal like Reset). On the web the
 store is on exactly when `api/config` sells the pack, and then `EntitlementsProvider` reads
 what is owned from `api/me` alone, never from `multidconnect4.entitlements.v1`; the phone apps
-keep `STORE_ENABLED = false` and their own store seam. The browser suite plays the whole flow
+keep `STORE_ENABLED = false` and their own store seam. Until `api/config` (and, where sign-in is
+on, the first `api/me`) has answered, the web build is `checking`: nothing owned, nothing offered,
+Extras says so. The board and pieces are drawn through `owns` (`drawnLook` in `theme.tsx`, which
+is why `ThemeProvider` sits below `EntitlementsProvider` in `App.tsx`): a ✦ choice the visitor does
+not own right now is drawn as its default, and the stored record is never rewritten for it. A
+line about a payment is said, and polled for, only when the first `api/me` reports someone signed
+in; every line goes once a refresh finds nobody signed in, and a poll still asking then is not
+applied after it (`visitor` in `account.tsx`). After `?purchase=success`, and after the kit's
+409 `payment_pending` (which the kit this repository carries never sends: its later copy does),
+Extras says "Payment received — processing" where Buy was until `api/me` reports the pack, for
+the life of the page and across a reload within `PENDING_MS` (ten minutes) through the tab's
+one sessionStorage record, `multidconnect4.purchasePending.v1` (`SESSION_KEYS` in
+`accountModel.ts`, pinned by the contract test), which goes once the pack is reported or nobody
+is signed in: with the kit at 7f4e583 a second Buy before the webhook makes a second Checkout
+that can be paid. With the API not running, nginx's `/api/` answers 502 or 504 with the site's
+not-found page and every header (`error_page 502 504 /404.html`), `/api` is the same page
+(`location = /api`), and README gives Apache's `ErrorDocument` lines beside its `ProxyPass`;
+`website.test.ts` pins all three. The browser suite plays the whole flow
 under the site's policy (`e2e/serve.mjs` runs the kit for `<base>/api/*` as Cloudflare does);
 Playwright does not route a request a redirect makes, so Google's consent is answered where the
 kit's redirect to it is made, from the kit's own answer, and a request that reaches

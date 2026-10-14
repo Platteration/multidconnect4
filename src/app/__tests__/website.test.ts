@@ -205,10 +205,32 @@ describe('the response headers', () => {
       'proxy_set_header Connection "";',
       'client_max_body_size 1m;',
       'proxy_read_timeout 30s;',
+      // The API not running (502) or not answering (504): the site's not-found page, not nginx's
+      // own, which would go out with this location's one header. Nothing intercepts the API's own
+      // answers.
+      'error_page 502 504 /404.html;',
       hsts![1],
     ]);
+    expect(NGINX).not.toMatch(/^\s*proxy_intercept_errors\b/m);
     // ^~ wins over every regular expression, so nothing under /api/ is served from the folder.
     expect(NGINX).toMatch(/^\s*location \^~ \/api\/ \{$/m);
+  });
+
+  it("answer an API that is not running, and /api, with the site's not-found page and every header", () => {
+    // The page the API's error_page names is served by a location that adds no header of its own,
+    // so the server block's all go with it (measured on nginx 1.24: 502 and 504, nine headers).
+    const notFound = nginxLocations().filter((l) => l.match === '= /404.html');
+    expect(notFound.map((l) => l.body.trim())).toEqual(['internal;']);
+    // Without its slash, /api would be answered from the API's location with nginx's own 301 and
+    // that location's one header.
+    expect(nginxLocations().filter((l) => l.match === '= /api').map((l) => l.body.trim())).toEqual(['return 404;']);
+    expect(NGINX).toMatch(/^\s*error_page 404 \/404\.html;$/m);
+    // Apache cannot proxy from .htaccess: README gives the virtual host's lines, the error pages
+    // beside the ProxyPass (measured on Apache 2.4.58: without them, its own 503 and no header).
+    const readme = read('README.md');
+    expect(readme).toContain(
+      ['  ```apache', '  ProxyPass "/api/" "http://127.0.0.1:8788/api/"', '  ErrorDocument 502 /404.html', '  ErrorDocument 503 /404.html', '  ErrorDocument 504 /404.html', '  ```'].join('\n'),
+    );
   });
 
   it('turn HTTP/2 on in the form every nginx reads', () => {
@@ -538,14 +560,38 @@ describe('the build', () => {
     fs.rmSync(box.dir, { recursive: true, force: true });
   });
 
-  it.each([
-    [[], '/api/*'],
-    [['--base', '/multidconnect4'], '/multidconnect4/api/*'],
-  ])('with %j, has Cloudflare Pages run the API for %s and for nothing else', (args, route) => {
+  it('has Cloudflare Pages run the API for /api/* and for nothing else', () => {
     // functions/api/[[path]].js is the sign-in and shop API (server/kit). With no _routes.json
     // every request to the site would invoke it, the bundle and the sounds included.
     const box = sandbox();
-    expect(box.run(...args, '--host', 'cloudflare')).toEqual({ status: 0, stderr: '' });
+    expect(box.run('--host', 'cloudflare')).toEqual({ status: 0, stderr: '' });
+    expect(JSON.parse(fs.readFileSync(path.join(box.repo, 'dist-web', '_routes.json'), 'utf8'))).toEqual({ version: 1, include: ['/api/*'], exclude: [] });
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['--base', '/multidconnect4', '--host', 'cloudflare'],
+    ['--host', 'cloudflare', '--base', '/a/b'],
+  ])('refuses %s %j %s %j before the exporter runs: the Function answers /api/* alone', (...args) => {
+    // Pages serves a project at the root of its domain, and Pages routes a Function by its file's
+    // path: a site under a sub-path there would ask <base>/api/config of a Function that is not
+    // there, and run with no sign-in and no shop, and nothing said.
+    expect(fs.existsSync(path.join(root, 'functions', 'api', '[[path]].js'))).toBe(true);
+    const box = sandbox();
+    const result = box.run(...args);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^build-web: --host cloudflare serves the site at the root of its domain/);
+    expect(box.exporter()).toBeNull();
+    expect(fs.existsSync(path.join(box.repo, 'dist-web'))).toBe(false);
+    fs.rmSync(box.dir, { recursive: true, force: true });
+  });
+
+  it.each([
+    [[], '/api/*'],
+    [['--base', '/multidconnect4'], '/multidconnect4/api/*'],
+  ])('with %j and no host named, writes _routes.json for %s', (args, route) => {
+    const box = sandbox();
+    expect(box.run(...args)).toEqual({ status: 0, stderr: '' });
     expect(JSON.parse(fs.readFileSync(path.join(box.repo, 'dist-web', '_routes.json'), 'utf8'))).toEqual({ version: 1, include: [route], exclude: [] });
     fs.rmSync(box.dir, { recursive: true, force: true });
   });

@@ -101,9 +101,17 @@ looks is the purchase the server has on record, which Stripe's signed webhook
 alone writes. Without that API (GitHub Pages, any static host) the website is
 as the phone apps are: no sign-in, no shop, every extra free. The unlock is a
 cosmetic gate in the visitor's own browser, not a secret: anyone who edits the
-page can wear a ✦ board without paying. A ✦ look chosen while everything was
-free stays chosen when the shop turns on; the pickers offer the others to a
-supporter only.
+page can wear a ✦ board without paying. A ✦ look stays chosen in the
+visitor's settings whatever happens, but is drawn only while it is owned:
+one chosen while everything was free, or whose purchase was refunded,
+signed out of or deleted with the account, is drawn as the default board or
+pieces until the server reports the pack again, and the pickers offer the
+others to a supporter only. Until the site has answered what it sells (its
+`api/config`, and `api/me` where sign-in is on) nothing is owned on the web,
+so on every load a ✦ look is drawn as its default for the time of that
+answer, on a host with no API too. A site with no API, or whose `api/config`
+fails or is not the API's answer, is a host with no API for that visit:
+every look free.
 
 ## Running it
 
@@ -281,7 +289,17 @@ plays exactly as it does without it. The phone apps never have it.
   in as …", Sign out, and Delete account, which asks first and says the
   purchase goes with the account), Extras sells the pack at its price ("Buy",
   "Sign in to buy" when signed out, "Owned"), and the screen says when a
-  sign-in did not complete or a purchase has been unlocked. The About card's
+  sign-in did not complete or a purchase has been unlocked. A line about a
+  payment is said only to a visitor `api/me` reports signed in, and every
+  line goes when they sign out or delete the account. Back from Checkout
+  before Stripe's webhook has reached the site, Extras says "Payment received
+  — processing" where Buy was until `api/me` reports the pack, and across a
+  reload within ten minutes through one sessionStorage record of the tab's
+  own (`multidconnect4.purchasePending.v1`), because the kit this repository
+  carries starts a new Checkout for every Buy and a second one could be paid
+  too (the kit's later copy refuses it, 409 `payment_pending`, which the page
+  reads the same way). Another tab, or a reload after ten minutes, still
+  shows Buy until the webhook arrives. The About card's
   sentence about what leaves the device says what does then. The code is
   `src/app/accountClient.web.ts` (the one module of the app that makes a
   request, bundled into the web build alone), `accountModel.ts`,
@@ -297,17 +315,32 @@ plays exactly as it does without it. The phone apps never have it.
   documentation, `pages/configuration/headers.mdx` and `redirects.mdx`), so
   the API sends its own headers, and the site's 404 rule cannot swallow
   `api/`; Wrangler uploads none of `_headers`, `_redirects` and
-  `_routes.json` as a file. Serve the site at the root of its own domain: a
-  sub-path build writes `_routes.json` for `/<path>/api/*`, and the entry
-  would have to move to `functions/<path>/api/` to match it.
+  `_routes.json` as a file. Serve the site at the root of its own domain,
+  where Pages serves a project and where the entry answers `/api/*`: a
+  `--host cloudflare` build with `--base` is refused, since its API could
+  never run.
 - **Self-hosted**: `KIT_DATA_DIR=/var/lib/multidconnect4-api node server/start.mjs`
   under a service manager, as its own user, one process per data directory
   (outside the web root). It listens on 127.0.0.1:8788, and
   `deploy/nginx.conf`'s `location ^~ /api/` sends it the site's `api/`;
-  stopped, that location answers 502 and the page draws nothing. Apache's
-  `.htaccess` cannot proxy: in the virtual host,
-  `ProxyPass "/api/" "http://127.0.0.1:8788/api/"` with `mod_proxy` and
-  `mod_proxy_http`.
+  stopped, that location answers 502 (504 when it does not answer in time)
+  with the site's not-found page and every header the site sends, and the
+  page draws nothing; `/api` itself is the not-found page too
+  (`location = /api`), where nginx would answer its own 301. A site that
+  runs no API can delete both locations. Apache's `.htaccess` cannot proxy:
+  in the virtual host, with `mod_proxy` and `mod_proxy_http`,
+
+  ```apache
+  ProxyPass "/api/" "http://127.0.0.1:8788/api/"
+  ErrorDocument 502 /404.html
+  ErrorDocument 503 /404.html
+  ErrorDocument 504 /404.html
+  ```
+
+  Without the `ErrorDocument` lines an API that is not running is Apache's
+  own 503 page with none of the site's headers; with them it is the site's
+  not-found page, status kept (measured on nginx 1.24 and Apache 2.4.58).
+  The API's own answers pass through either way.
 - **The variables**, environment only, never in the repository:
   `APP_URL` (the site's address with its trailing slash), `SESSION_SECRET`,
   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`,
@@ -315,10 +348,14 @@ plays exactly as it does without it. The phone apps never have it.
   first four; the shop needs all seven.
 - **What leaves the device**, then: nothing unless the visitor signs in or
   buys. Signing in, Google tells the site an account id and the email
-  address; a purchase is paid to Stripe, which handles the payment. The site
-  keeps the account id, what was bought and Stripe's customer id, and the
-  email address only while the visitor stays signed in. Delete account
-  removes all of it but the payment, which stays with Stripe.
+  address; a purchase is paid to Stripe, which handles the payment and is
+  told the account id with it (as the Checkout session's reference and in
+  the payment's metadata), but not the email address. The site keeps the
+  account id, what was bought and Stripe's customer id, and the email
+  address only while the visitor stays signed in. Delete account removes
+  all of it but the payment, which stays with Stripe under that account id,
+  and a count of the hour's Buy presses, which names the account id and goes
+  within two hours.
 - **One origin per app.** Every page on the site's origin can act as the
   signed-in visitor through `api/` (the kit's README, "Hosting"), so the API
   belongs on an origin of the game's own, never on a shared one such as a

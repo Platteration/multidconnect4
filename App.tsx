@@ -64,12 +64,14 @@ export default function App() {
   // boundary, because the boundary draws the screen again ("Try again", and the
   // reset) and the platform reports the same link to every screen that asks.
   const [launch] = useState(launchLink);
+  // The theme sits below the account and what it owns: a ✦ look is drawn only while it is owned
+  // (drawnLook in src/app/theme.tsx).
   return (
     <SettingsProvider>
-      <ThemeProvider>
-        <ProgressProvider>
-          <AccountProvider>
-            <EntitlementsProvider>
+      <AccountProvider>
+        <EntitlementsProvider>
+          <ThemeProvider>
+            <ProgressProvider>
               <StatsProvider>
                 <SafeAreaProvider>
                   <ErrorBoundary
@@ -83,10 +85,10 @@ export default function App() {
                   </ErrorBoundary>
                 </SafeAreaProvider>
               </StatsProvider>
-            </EntitlementsProvider>
-          </AccountProvider>
-        </ProgressProvider>
-      </ThemeProvider>
+            </ProgressProvider>
+          </ThemeProvider>
+        </EntitlementsProvider>
+      </AccountProvider>
     </SettingsProvider>
   );
 }
