@@ -566,6 +566,9 @@ try {
       await backAgain;
       await p.waitForFunction(() => location.search === '');
       assert.equal(checkouts.length, 2);
+      // The tab notes the payment once api/me has said who is signed in, a moment after the
+      // address is cleaned: reload only once it has.
+      await p.waitForFunction((key) => sessionStorage.getItem(key) !== null, PENDING_KEY);
       await p.reload();
       await button(p, 'Menu').waitFor();
       await openFromMenu(p, 'Extras');

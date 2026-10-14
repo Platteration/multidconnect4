@@ -199,6 +199,13 @@ async function render(client: AccountClient | undefined, screen: Screen | Screen
   return { tree, entitled: () => entitled, theme: () => theme, account: () => account };
 }
 
+// The first case mounts the Settings sheet in a fresh module registry, and React Native's
+// components are required and transformed on that first render: with a cold transform cache
+// (as on CI) it measured 6.3-6.7 s alone and 10.9 s beside the other suites, the same at aedc58d,
+// against jest's default of 5 s, which CI's run 38491678940 crossed. Warm, every case takes well
+// under a second. launchLink.test.ts allows its own first mount the same.
+jest.setTimeout(20000);
+
 beforeEach(() => store.clear());
 
 describe('with nothing on: a phone, or a site whose api/config is a 404', () => {
