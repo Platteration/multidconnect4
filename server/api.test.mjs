@@ -319,6 +319,11 @@ describe("what README and About say Stripe is told, and what Delete account leav
     );
     assert.equal(hook.status, 200);
     assert.deepEqual(/** @type {{ entitlements: string[] }} */ (await (await send('GET', 'api/me')).json()).entitlements, ['supporter']);
+    // The Checkout Session the site gave for the pack, remembered so that a second Buy is given the
+    // same one: kept past the webhook, for 30 days at most, and gone with the account below.
+    const remembered = data.get('multidconnect4:test:checkout:google:1001:supporter');
+    assert.equal(/** @type {{ id?: unknown }} */ (JSON.parse(remembered?.value ?? 'null'))?.id, new URL(url).pathname.split('/').pop());
+    assert.ok((remembered?.ttl ?? Infinity) <= 30 * 24 * 3600);
 
     assert.equal((await send('DELETE', 'api/me')).status, 204);
     const object = /** @type {{ payment_intent: string, customer: string }} */ (/** @type {{ data: { object: unknown } }} */ (event).data.object);

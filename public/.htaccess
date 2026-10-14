@@ -2,6 +2,15 @@
 # `npx expo export` copies this file from public/ into the published folder. Netlify and
 # Cloudflare Pages read _headers and _redirects instead; nginx: deploy/nginx.conf. The three
 # carry the same values; _headers says why each one is what it is.
+#
+# What the server's configuration has to give the folder, since nothing in this file can set it
+# (README, "Deploy"): mod_rewrite and mod_headers (`a2enmod rewrite headers`: Debian and Ubuntu
+# leave both off), `AllowOverride FileInfo Options`, or All, on the folder (they ship
+# `AllowOverride None` for /var/www, under which this file is ignored without a word), and
+# `ServerTokens Prod`, or every response names Apache's version. No directive here is wrapped in
+# <IfModule>: without a module every request answers 500 and the error log names the directive
+# ("Invalid command 'RewriteEngine'"), where wrapped rules were skipped and the folder served with
+# none of these headers and no refusals, logging nothing.
 # The sign-in and shop API (server/kit, `node server/start.mjs` on 127.0.0.1:8788) cannot be
 # proxied from here: mod_proxy is server configuration. In the virtual host, with mod_proxy and
 # mod_proxy_http: ProxyPass "/api/" "http://127.0.0.1:8788/api/", and ErrorDocument 502, 503 and
@@ -16,53 +25,47 @@ AddDefaultCharset utf-8
 ErrorDocument 404 /404.html
 ErrorDocument 403 /404.html
 
-<IfModule mod_mime.c>
-  AddType text/javascript .js
-  AddType text/css .css
-  AddType audio/wav .wav
-  AddType image/x-icon .ico
-  AddType text/plain .txt
-</IfModule>
+AddType text/javascript .js
+AddType text/css .css
+AddType audio/wav .wav
+AddType image/x-icon .ico
+AddType text/plain .txt
 
-<IfModule mod_rewrite.c>
-  RewriteEngine On
-  # everything over https
-  RewriteCond %{HTTPS} !=on
-  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
-  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
-  # never serve a dotfile (this file above all), except /.well-known/
-  RewriteRule (^|/)\.(?!well-known/) - [R=404,L]
-  # the files in the built folder that are not part of the site. No rule here names a repository
-  # file: Apache reads a .htaccess from the folders it serves, so these rules exist only where the
-  # built folder is published, which holds none. Pointed at a checkout, Apache finds no .htaccess
-  # at its root and none of this applies: publish the built folder and nothing else.
-  RewriteRule ^(_headers|_redirects|_routes\.json|metadata\.json)$ - [R=404,L]
-  # a folder with no page of its own is a 404, not a 403 that hints at a listing
-  RewriteCond %{REQUEST_FILENAME} -d
-  RewriteCond %{REQUEST_FILENAME}/index.html !-f
-  RewriteRule ^ - [R=404,L]
-</IfModule>
+RewriteEngine On
+# everything over https
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+# never serve a dotfile (this file above all), except /.well-known/
+RewriteRule (^|/)\.(?!well-known/) - [R=404,L]
+# the files in the built folder that are not part of the site. No rule here names a repository
+# file: Apache reads a .htaccess from the folders it serves, so these rules exist only where the
+# built folder is published, which holds none. Pointed at a checkout, Apache finds no .htaccess
+# at its root and none of this applies: publish the built folder and nothing else.
+RewriteRule ^(_headers|_redirects|_routes\.json|metadata\.json)$ - [R=404,L]
+# a folder with no page of its own is a 404, not a 403 that hints at a listing
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteCond %{REQUEST_FILENAME}/index.html !-f
+RewriteRule ^ - [R=404,L]
 
-<IfModule mod_headers.c>
-  Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='; img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests; require-trusted-types-for 'script'; trusted-types 'none'"
-  Header always set X-Content-Type-Options "nosniff"
-  Header always set X-Frame-Options "DENY"
-  Header always set Referrer-Policy "no-referrer"
-  Header always set Permissions-Policy "accelerometer=(), attribution-reporting=(), autoplay=(self), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(self), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), join-ad-interest-group=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), private-aggregation=(), publickey-credentials-create=(), publickey-credentials-get=(), run-ad-auction=(), screen-wake-lock=(), serial=(), shared-storage=(), shared-storage-select-url=(), storage-access=(), usb=(), window-management=(), xr-spatial-tracking=()"
-  Header always set Cross-Origin-Opener-Policy "same-origin"
-  Header always set Cross-Origin-Resource-Policy "same-origin"
-  # On every response, as _headers and nginx send it: a browser ignores it over plain HTTP, and
-  # held to env=HTTPS it never left a server behind a proxy that ends TLS for it, which is the
-  # case the redirect above reads X-Forwarded-Proto for.
-  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
-  # The bundle and the sounds carry a hash of their contents in their names; nothing else does.
-  # Only a file that is there is kept a year: the not-found page answered at one of those
-  # addresses (to a page that names a bundle a copy has not finished uploading) is revalidated,
-  # or the visitor would keep the 404 for a year.
-  <If "-f %{REQUEST_FILENAME} && %{REQUEST_URI} =~ m#/(_expo/static|assets)/#">
-    Header always set Cache-Control "public, max-age=31536000, immutable"
-  </If>
-  <Else>
-    Header always set Cache-Control "no-cache"
-  </Else>
-</IfModule>
+Header always set Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='; img-src 'self'; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests; require-trusted-types-for 'script'; trusted-types 'none'"
+Header always set X-Content-Type-Options "nosniff"
+Header always set X-Frame-Options "DENY"
+Header always set Referrer-Policy "no-referrer"
+Header always set Permissions-Policy "accelerometer=(), attribution-reporting=(), autoplay=(self), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(self), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), identity-credentials-get=(), idle-detection=(), join-ad-interest-group=(), local-fonts=(), magnetometer=(), microphone=(), midi=(), otp-credentials=(), payment=(), picture-in-picture=(), private-aggregation=(), publickey-credentials-create=(), publickey-credentials-get=(), run-ad-auction=(), screen-wake-lock=(), serial=(), shared-storage=(), shared-storage-select-url=(), storage-access=(), usb=(), window-management=(), xr-spatial-tracking=()"
+Header always set Cross-Origin-Opener-Policy "same-origin"
+Header always set Cross-Origin-Resource-Policy "same-origin"
+# On every response, as _headers and nginx send it: a browser ignores it over plain HTTP, and
+# held to env=HTTPS it never left a server behind a proxy that ends TLS for it, which is the
+# case the redirect above reads X-Forwarded-Proto for.
+Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+# The bundle and the sounds carry a hash of their contents in their names; nothing else does.
+# Only a file that is there is kept a year: the not-found page answered at one of those
+# addresses (to a page that names a bundle a copy has not finished uploading) is revalidated,
+# or the visitor would keep the 404 for a year.
+<If "-f %{REQUEST_FILENAME} && %{REQUEST_URI} =~ m#/(_expo/static|assets)/#">
+  Header always set Cache-Control "public, max-age=31536000, immutable"
+</If>
+<Else>
+  Header always set Cache-Control "no-cache"
+</Else>

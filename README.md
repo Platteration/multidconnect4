@@ -176,6 +176,28 @@ serve all of it, `.git/` included. Only nginx's rules are the server's own and
 still hold there: every dotfile but `/.well-known/` (so all of `.git/`),
 `README.md` and `deploy/` answer 404, and the rest of the checkout is served.
 
+**Apache** needs two modules that Debian and Ubuntu leave off, and has to be
+allowed to read `.htaccess` at all, which they do not allow under
+`/var/www`; none of this can be set from the file itself:
+
+```sh
+sudo a2enmod rewrite headers
+# in the site's <Directory> block (or the virtual host's):
+#   AllowOverride FileInfo Options      (or All)
+# and in the server's configuration, which .htaccess cannot set:
+#   ServerTokens Prod
+sudo systemctl reload apache2
+```
+
+Without a module, every request answers 500 and the error log names the
+directive (`Invalid command 'RewriteEngine'`): the file wraps nothing in
+`<IfModule>`, which would serve the folder with none of its headers or
+refusals and say nothing. With `FileInfo` or `Options` alone, every request
+answers 500 too (measured on Apache 2.4.58). Without `AllowOverride` at all,
+Apache ignores the file without a word, so run the launch checklist below.
+Without `ServerTokens Prod`, every response names Apache's version and, as
+Ubuntu ships it, the operating system.
+
 On a host you copy files to (Apache, nginx), copy `_expo/` and `assets/`
 before `index.html`, so that no visitor is sent a page whose bundle has not
 arrived yet; Netlify and Cloudflare Pages switch a deploy over in one step.
@@ -262,8 +284,9 @@ renewing before then (`website.test.ts` fails once it has passed). Its
 `Policy` link names `blob/main/`, not `blob/HEAD/`: the repository's default
 branch is not `main` and holds no `SECURITY.md`. On GitHub Pages, Jekyll
 skips dot-folders unless the site holds `.nojekyll`, and the Pages upload
-action can leave hidden files out, so check after a deploy that
-`/.well-known/security.txt` is served.
+action leaves out every path that starts with a dot unless it is told
+otherwise (`pages.yml` passes it `include-hidden-files: true`), so check
+after a deploy that `/.well-known/security.txt` is served.
 
 ### Sign-in and the shop
 
@@ -295,11 +318,14 @@ plays exactly as it does without it. The phone apps never have it.
   before Stripe's webhook has reached the site, Extras says "Payment received
   — processing" where Buy was until `api/me` reports the pack, and across a
   reload within ten minutes through one sessionStorage record of the tab's
-  own (`multidconnect4.purchasePending.v1`), because the kit this repository
-  carries starts a new Checkout for every Buy and a second one could be paid
-  too (the kit's later copy refuses it, 409 `payment_pending`, which the page
-  reads the same way). Another tab, or a reload after ten minutes, still
-  shows Buy until the webhook arrives. The About card's
+  own (`multidconnect4.purchasePending.v1`). The API itself gives a second
+  Buy before the webhook the Checkout it gave the first while that is still
+  open, and once it is paid refuses it (409 `payment_pending`, which the page
+  reads the same way), so another tab, or a reload after ten minutes, still
+  shows Buy until the webhook arrives, and pressing it there says the payment
+  is on its way rather than starting a second one. Two devices signed in at
+  once can still each start one (`server/kit/README.md`, "Limits worth
+  knowing"). The About card's
   sentence about what leaves the device says what does then. The code is
   `src/app/accountClient.web.ts` (the one module of the app that makes a
   request, bundled into the web build alone), `accountModel.ts`,
@@ -352,8 +378,10 @@ plays exactly as it does without it. The phone apps never have it.
   told the account id with it (as the Checkout session's reference and in
   the payment's metadata), but not the email address. The site keeps the
   account id, what was bought and Stripe's customer id, and the email
-  address only while the visitor stays signed in. Delete account removes
-  all of it but the payment, which stays with Stripe under that account id,
+  address only while the visitor stays signed in; and, for 30 days, the
+  Checkout Session it last gave the account for the pack, which is how a
+  second Buy is given the same one. Delete account removes all of it but the
+  payment, which stays with Stripe under that account id,
   and a count of the hour's Buy presses, which names the account id and goes
   within two hours.
 - **One origin per app.** Every page on the site's origin can act as the
@@ -407,8 +435,18 @@ devDependency; its Chromium comes from `npx playwright install chromium`.
 
 `.github/workflows/ci.yml` runs the lint, the typecheck, the tests, the
 conventions test, an Android and web export and the browser suite on every
-push; a separate job runs `npm audit --omit=dev --audit-level=high` against
-the lockfile.
+push; a separate job runs `node .github/audit/npm-audit.mjs` against the
+lockfile: the shared audit gate (CONVENTIONS.md, "CI"), which runs
+`npm audit --omit=dev` and fails on every high or critical advisory, less what
+`.github/audit/accepted.json` accepts. That list accepts two today, braces and
+node-forge, which reach the production tree only through Metro's, Expo's and
+Jest's file maps and `@expo/cli`'s code signing, none of it in the app or the
+website, and have no patched release to take. Each acceptance names a route
+from every direct dependency that reaches the package and expires within 90
+days, so it is read again at least once a quarter, and sooner when a fixed
+release appears in the major an installed copy is on, or the lockfile brings
+the package in through a direct dependency the list has no route from. Every
+job runs on `ubuntu-24.04`.
 
 ## Project layout
 
@@ -479,6 +517,8 @@ e2e/serve.mjs, e2e/run.mjs the browser suite's host (Netlify's reading of
 e2e/ui-regression.py       the development-server check above (Python)
 .github/workflows/         ci.yml (the gate and the audit) and pages.yml (the
                            GitHub Pages deploy)
+.github/audit/             the shared audit gate the audit job runs, and the
+                           advisories it accepts (accepted.json)
 assets/artwork/icon.blend  the icons' Blender scene; scripts/render-icons.py
                            renders assets/ from it
 docs/                      the release checklist and the store listing draft
