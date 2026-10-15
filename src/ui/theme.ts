@@ -58,7 +58,7 @@ const LIGHT: Base = {
   panelRaised: '#e9e2d3',
   border: '#b7b2a4',
   text: '#24333e',
-  textMuted: '#536269',
+  textMuted: '#5b6b72',
   travel: '#296f69',
   focus: '#24333e',
   success: '#37734d',

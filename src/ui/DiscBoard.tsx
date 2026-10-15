@@ -74,14 +74,14 @@ export function DiscBoard({ board, cellSize, highlight, selected, interactive, g
               styles.hole,
               { width: disc, height: disc, borderRadius: disc / 2 },
               dropped && dropped.row === r && dropped.col === c ? { transform: [{ translateY: fall }] } : null,
-              (value === 0 || value === 1) && { borderBottomWidth: 5, backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
+              value !== null && { borderBottomWidth: 5, backgroundColor: colors.players[value], borderColor: colors.playersEdge[value] },
               isGhost && { backgroundColor: colors.players[ghostPlayer!], opacity: 0.14, borderColor: 'transparent' },
               isSelected && styles.selected,
               isHighlighted && styles.highlighted,
             ]}
           >
-            {value === 0 || value === 1 ? <View pointerEvents="none" style={styles.discShine} /> : null}
-            {patterns && (value === 0 || value === 1) ? <Marker player={value} size={disc} /> : null}
+            {value !== null ? <View pointerEvents="none" style={styles.discShine} /> : null}
+            {patterns && value !== null ? <Marker player={value} size={disc} /> : null}
           </Animated.View>
         </Pressable>,
       );
@@ -124,7 +124,7 @@ const makeStyles = (colors: Theme) =>
     borderRadius: radius.lg,
     borderWidth: FRAME,
     borderColor: colors.boardDark,
-    borderBottomWidth: FRAME_BOTTOM,
+    borderBottomWidth: 6,
     alignSelf: 'center',
   },
   row: { flexDirection: 'row' },
