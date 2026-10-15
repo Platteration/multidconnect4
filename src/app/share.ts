@@ -16,6 +16,11 @@ import { decode, encode } from './base64';
 import { DEFAULT_SETUP, GameSetup } from './setup';
 
 const PREFIX = '5DC4.';
+const MAX_CODE_BYTES = 100000;
+// The decoded payload limit is the primary guard; this bounds the work done
+// by base64 decoding before that limit can be checked.
+const MAX_CODE_CHARS = 140000;
+const MAX_GAME_ACTIONS = 4000;
 
 function safeParse<T>(text: string): T {
   return JSON.parse(text, (key, value) => {
@@ -140,6 +145,49 @@ interface Payload {
   a: Action[];
 }
 
+function isInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function isBoardRef(value: unknown): value is { timeline: number; turn: number } {
+  if (!value || typeof value !== 'object') return false;
+  const ref = value as Record<string, unknown>;
+  return isInteger(ref.timeline) && ref.timeline >= 0 && isInteger(ref.turn) && ref.turn >= 0;
+}
+
+function isDiscRef(value: unknown): value is { timeline: number; row: number; col: number } {
+  if (!value || typeof value !== 'object') return false;
+  const ref = value as Record<string, unknown>;
+  return isInteger(ref.timeline) && ref.timeline >= 0 && isInteger(ref.row) && ref.row >= 0 && isInteger(ref.col) && ref.col >= 0;
+}
+
+/** Validate the JSON shape before handing untrusted data to the engine. */
+function isAction(value: unknown): value is Action {
+  if (!value || typeof value !== 'object') return false;
+  const action = value as Record<string, unknown>;
+  switch (action.type) {
+    case 'drop':
+    case 'pop':
+      return isInteger(action.timeline) && action.timeline >= 0 && isInteger(action.col) && action.col >= 0;
+    case 'rotate':
+      return isInteger(action.timeline) && action.timeline >= 0 && (action.spin === 'cw' || action.spin === 'ccw');
+    case 'flip':
+      return isInteger(action.timeline) && action.timeline >= 0;
+    case 'endTurn':
+      return true;
+    case 'travel':
+      return isDiscRef(action.from) && isBoardRef(action.to) && isInteger(action.col) && action.col >= 0;
+    default:
+      return false;
+  }
+}
+
+function cleanRules(value: unknown): Rules {
+  if (!value || typeof value !== 'object') return { popOut: false, flip: false, strictPresent: false };
+  const rules = value as Record<string, unknown>;
+  return { popOut: rules.popOut === true, flip: rules.flip === true, strictPresent: rules.strictPresent === true };
+}
+
 export function actionsOf(history: GameState[]): Action[] {
   return history.slice(1).map((s) => s.lastAction).filter((a): a is Action => !!a);
 }
@@ -193,22 +241,17 @@ export function shareCodeFor(history: GameState[], setup: GameSetup): ShareCode 
 export function decodeGame(code: string): { history: GameState[]; setup: GameSetup } {
   const trimmed = code.trim();
   if (!trimmed.startsWith(PREFIX)) throw new Error('This is not a 5D Connect Four game code.');
-  if (trimmed.length > MAX_CODE_LENGTH) throw new Error('That code is too long to be a real game.');
+  if (trimmed.length > MAX_CODE_CHARS) throw new Error('That code is too long to load safely.');
   let payload: Payload;
   try {
     payload = safeParse<Payload>(decode(trimmed.slice(PREFIX.length)));
   } catch {
     throw new Error('That code is damaged and cannot be read.');
   }
-  if (!payload || typeof payload !== 'object' || payload.v !== 1 || !Array.isArray(payload.a)) {
-    throw new Error('That code is from a version this app cannot read.');
-  }
-  if (payload.a.length > MAX_ACTIONS) throw new Error('That code is too long to be a real game.');
-  // Every action is checked for shape before any is replayed, so a list that
-  // ends in nonsense is refused without paying for the replay in front of it.
-  if (!payload.a.every(isAction)) throw new Error('That code contains an invalid move, one that is not legal in any game.');
-  let state = newGame(cleanRules(payload.r));
-  const history: GameState[] = [state];
+  if (!payload || typeof payload !== 'object' || payload.v !== 1 || !Array.isArray(payload.a)) throw new Error('That code is from a version this app cannot read.');
+  if (payload.a.length > MAX_GAME_ACTIONS) throw new Error('That code is too long to load safely.');
+  if (!payload.a.every(isAction)) throw new Error('That code contains an invalid move.');
+  const history: GameState[] = [newGame(cleanRules(payload.r))];
   for (const action of payload.a) {
     let next: GameState;
     try {

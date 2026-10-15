@@ -28,8 +28,7 @@ import { setHapticsEnabled, setSoundEnabled } from '../app/feedback';
 import { KEYS, removeKey, saveJson } from '../app/persist';
 import { MAX_SAVED_ACTIONS, saveDecision } from '../app/savedGame';
 import { useSettings } from '../app/settings';
-import { useReduceMotion } from '../motion';
-import { clearCodeFromUrl, codeFromUrl, LaunchLink, webLinkFor } from '../app/links';
+import { clearCodeFromUrl, codeFromUrl, webLinkFor } from '../app/links';
 import { narrate } from '../app/narrate';
 import { useStats } from '../app/stats';
 import { useProgress } from '../app/progress';
@@ -114,47 +113,41 @@ export function GameScreen({ initialHistory, initialSetup, initialNotice, launch
       const loaded = decodeGame(code);
       game.load(loaded.history, loaded.setup);
       setReplayIndex(null);
+      clearCodeFromUrl();
       return null;
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
   };
-  // A link is offered, not obeyed: it can come from any other app, any QR
-  // code or any web page, and loading it would throw away the game the two
-  // players are in the middle of.
-  const [linkedCode, setLinkedCode] = useState<string | null>(null);
-  // A link whose game will not load says why, until the next move, in the
-  // line the screen's other notices use: Alert.alert is an empty stub on the
-  // web, and a link that silently does nothing reads as a link that worked.
-  const [linkProblem, setLinkProblem] = useState<{ text: string; at: GameState[] } | null>(null);
-  // Whether it loaded or not: a code left in the web address bar is read
-  // again on every reload, and one that was refused is refused again just as
-  // often - or asked about again, over a game that has moved on since.
-  const acceptLinkedCode = (code: string) => {
-    const problem = loadCode(code);
-    setLinkProblem(problem ? { text: `Could not load the shared game. ${problem}`, at: game.history } : null);
-    clearCodeFromUrl();
+  const loadCodeRef = useRef(loadCode);
+  loadCodeRef.current = loadCode;
+  const acceptIncomingCode = (code: string) => {
+    const open = () => {
+      const problem = loadCodeRef.current(code);
+      if (problem) Alert.alert('Could not load shared game', problem);
+    };
+    if (game.history.length > 1) {
+      Alert.alert('Open shared game?', 'Loading this link replaces the game in progress.', [
+        { text: 'Keep playing', style: 'cancel' },
+        { text: 'Open shared game', style: 'destructive', onPress: open },
+      ]);
+    } else {
+      open();
+    }
   };
-  const offerCode = (code: string) => {
-    if (linkNeedsConfirming(game.history.length)) setLinkedCode(code);
-    else acceptLinkedCode(code);
-  };
-  const offerCodeRef = useRef(offerCode);
-  offerCodeRef.current = offerCode;
-  // The launch link is asked for once per launch (App holds `launch`): this
-  // screen is mounted again by the error boundary, and the platform reports the
-  // same launch link to every mount.
+  const acceptIncomingCodeRef = useRef(acceptIncomingCode);
+  acceptIncomingCodeRef.current = acceptIncomingCode;
   useEffect(() => {
     launch
       .take(() => Linking.getInitialURL())
       .then((url) => {
         const code = codeFromUrl(url);
-        if (code) offerCodeRef.current(code);
+        if (code) acceptIncomingCodeRef.current(code);
       })
       .catch(() => {});
     const sub = Linking.addEventListener('url', ({ url }) => {
       const code = codeFromUrl(url);
-      if (code) offerCodeRef.current(code);
+      if (code) acceptIncomingCodeRef.current(code);
     });
     return () => sub.remove();
   }, [launch]);
